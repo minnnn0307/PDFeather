@@ -6,7 +6,7 @@ import unittest
 from contextlib import ExitStack
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from layout import parse_pages, placement, grid, print_cells
+from layout import parse_pages, placement, grid, print_cells, print_placement
 from preferences import Preferences
 from PySide6.QtCore import QSettings
 from scripts.smoke_fixture import create_pdf
@@ -29,6 +29,41 @@ class Tests(unittest.TestCase):
         self.assertEqual(placement((100,200),(0,0,400,400),72,100), (150,100,100,200))
         for n in (1,2,4,6,9,16):
             cols, rows = grid(n); self.assertEqual(cols*rows,n)
+
+    def test_tile_rendering_and_dpi(self):
+        from rendering import visible_tiles
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QImage
+        with tempfile.TemporaryDirectory() as temp:
+            source=str(Path(temp)/'input.pdf'); create_pdf(source,1)
+            doc=Document(source)
+            try:
+                reference=doc.image(0,2,cached=False)
+                stitched=QImage(reference.size(),QImage.Format.Format_RGB888); stitched.fill(0)
+                painter=QPainter(stitched)
+                rect=QRectF(0,0,1190,1684)
+                for tile,target in visible_tiles(rect,rect,1):
+                    image=doc.tile(0,*tile); painter.drawImage(target,image)
+                    self.assertLessEqual(image.width()*image.height(),768*768)
+                painter.end()
+                actual_rgba=stitched.convertToFormat(QImage.Format.Format_RGBA8888); reference_rgba=reference.convertToFormat(QImage.Format.Format_RGBA8888)
+                self.assertTrue(actual_rgba==reference_rgba,'Tiled rendering differs from the full-resolution reference')
+                # At 500% and 2x DPR a full page would exceed 50 MP; only visible tiles are allocated.
+                page_rect=QRectF(0,0,2975,4210); visible=QRectF(500,300,900,650)
+                tiles=list(visible_tiles(page_rect,visible,2))
+                self.assertTrue(tiles); self.assertEqual(tiles[0][0][:2],(5950,8420))
+                pixels=0
+                for tile,_ in tiles:
+                    image=doc.tile(0,*tile); pixels+=image.width()*image.height()
+                self.assertLess(pixels,5950*8420/4)
+                self.assertLessEqual(doc.cache_bytes,64*1024*1024)
+            finally: doc.close()
+
+    def test_fit_relative_print_scale(self):
+        fit=print_placement((100,200),(0,0,400,400),72,100,'fit')
+        self.assertEqual(fit,(100,0,200,400))
+        self.assertEqual(print_placement((100,200),(0,0,400,400),72,50,'fit'),(150,100,100,200))
+        self.assertEqual(print_placement((100,200),(0,0,400,400),72,100,'actual'),(150,100,100,200))
 
     def test_print_margins(self):
         cells=print_cells((210,297),(10,20,30,40),4,2,25.4)
@@ -62,6 +97,10 @@ class Tests(unittest.TestCase):
             panel=window.settings_panel
             panel.controls['theme'].setCurrentIndex(panel.controls['theme'].findData('light'))
             self.assertEqual(window.theme_name,'light')
+            self.assertNotIn('1.2.0',window.windowTitle())
+            panel.controls['render_mode'].setCurrentIndex(panel.controls['render_mode'].findData('page'))
+            self.assertEqual(prefs.get('render_mode'),'page')
+            panel.controls['render_mode'].setCurrentIndex(panel.controls['render_mode'].findData('tiles'))
             self.assertEqual(Preferences(QSettings(settings_path,QSettings.Format.IniFormat)).get('theme'),'light')
             panel.controls['default_mode'].setCurrentIndex(0)
             window.set_zoom(.4)
@@ -135,6 +174,12 @@ class Tests(unittest.TestCase):
                 app.processEvents(); time.sleep(.01)
                 if dialog.preview_label.pixmap() and not dialog.preview_label.pixmap().isNull(): break
             heartbeat.stop()
+            self.assertFalse(dialog.scale.isEnabled()); self.assertEqual(dialog.scale.value(),100)
+            dialog.scale_mode.setCurrentIndex(2); dialog.scale.setValue(75)
+            self.assertTrue(dialog.scale.isEnabled()); self.assertEqual(dialog.settings()['percent'],75); self.assertEqual(dialog.settings()['scale_basis'],'fit')
+            dialog.set_busy(True); self.assertFalse(dialog.scale.isEnabled()); dialog.set_busy(False); self.assertTrue(dialog.scale.isEnabled())
+            dialog.scale_mode.setCurrentIndex(0); self.assertFalse(dialog.scale.isEnabled()); self.assertEqual(dialog.scale.value(),100)
+            dialog.scale_mode.setCurrentIndex(1); self.assertFalse(dialog.scale.isEnabled()); self.assertEqual(dialog.settings()['scale_basis'],'actual')
             self.assertGreater(len(ticks),3)
             self.assertTrue(dialog.preview_label.pixmap() and not dialog.preview_label.pixmap().isNull(),dialog.error.text())
             dialog.close(); window.close()

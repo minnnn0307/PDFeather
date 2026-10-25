@@ -53,7 +53,7 @@ class TitleBar(QWidget):
     def __init__(self, window):
         super().__init__(window); self.window=window; self.setObjectName('titleBar'); self.setFixedHeight(42)
         row=QHBoxLayout(self); row.setContentsMargins(14,0,4,0); row.setSpacing(4)
-        self.brand=QLabel(); self.brand.setObjectName('brand'); self.brand.setFixedSize(28,28); self.brand.setAlignment(Qt.AlignmentFlag.AlignCenter); self.brand.setPixmap(logo_pixmap(28,THEME=='dark')); row.addWidget(self.brand)
+        self.brand=QLabel(); self.brand.setObjectName('brand'); self.brand.setFixedSize(16,16); self.brand.setAlignment(Qt.AlignmentFlag.AlignCenter); self.brand.setPixmap(logo_pixmap(16,THEME=='dark',window.devicePixelRatioF())); row.addWidget(self.brand)
         self.title=QLabel('PDFeather'); self.title.setObjectName('windowTitle'); row.addWidget(self.title); row.addStretch()
         row.addWidget(tool('minimize','최소화',window.showMinimized))
         self.max_button=tool('maximize','최대화 / 창 모드',self.toggle); row.addWidget(self.max_button)
@@ -89,3 +89,24 @@ class ThumbnailDelegate(QStyledItemDelegate):
         painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(20,25,33,205)); painter.drawRoundedRect(label,7,7)
         painter.setPen(QColor('#ffffff')); painter.drawText(label,Qt.AlignmentFlag.AlignCenter,str(index.row()+1))
         painter.restore()
+
+
+class CategorySections(QWidget):
+    """Predictable accordion sizing without platform-dependent toolbox tab metrics."""
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        from PySide6.QtWidgets import QVBoxLayout
+        self.rows=QVBoxLayout(self); self.rows.setContentsMargins(0,0,0,0); self.rows.setSpacing(6)
+        self.pages=[]; self.buttons=[]; self.index=0
+
+    def addItem(self,page,title):
+        from PySide6.QtWidgets import QPushButton
+        index=len(self.pages); button=QPushButton(title); button.setObjectName('sectionHeader'); button.setCheckable(True); button.setFixedHeight(38)
+        button.clicked.connect(lambda *_:self.setCurrentIndex(index))
+        self.buttons.append(button); self.pages.append(page); self.rows.addWidget(button); self.rows.addWidget(page)
+        self.setCurrentIndex(self.index)
+
+    def setCurrentIndex(self,index):
+        self.index=index
+        for i,(button,page) in enumerate(zip(self.buttons,self.pages)):
+            button.setChecked(i==index); page.setVisible(i==index); self.rows.setStretch(i*2+1,1 if i==index else 0)

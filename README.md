@@ -1,8 +1,18 @@
-# PDFeather 1.1.0
+# PDFeather
 
 오프라인 Windows 10/11 x64 PDF 리더. Python을 설치하지 않은 PC에서도 설치본 실행이 가능합니다. 브라우저 엔진, 서버, 로그인, 원격 API, 자동 업데이트가 없습니다. 빌드할 때만 인터넷이 필요합니다.
 
-## 1.1.0 변경
+## 1.2.0 변경
+
+- 기본 표시를 고해상도 타일 렌더링으로 전환했습니다. 화면에 보이는 부분만 실제 모니터 픽셀 배율로 다시 그립니다. 전체 페이지의 1,600만 픽셀 제한을 화면 타일에는 적용하지 않습니다.
+- 설정 → 문서 표시 → 표시 모드에서 고해상도 타일 / 페이지 이미지 방식을 선택할 수 있습니다. 타일 캐시와 페이지 캐시는 합계 64 MiB 이내입니다. 타일 주변 여유 픽셀을 함께 그려 경계에서 글자 모양이 달라지는 현상을 방지합니다.
+- 상단의 문서·설정 탭을 제거했습니다. 톱니바퀴 또는 Ctrl+,로 여는 별도 설정 창을 일반 / 문서 표시 / 인쇄 기본값 / 정보로 분류했습니다.
+- 인쇄 창은 프린터 및 범위 / 용지 및 배치 / 크기 및 배율 / 여백 및 간격으로 분류했습니다.
+- 인쇄의 용지 맞춤 크기가 100%이며 사용자 맞춤의 숫자는 이 크기에 대한 비율입니다. 용지 맞춤과 실제 크기는 숫자 입력을 잠그고, 사용자 맞춤에서만 활성화합니다. 실제 크기는 PDF의 물리적 크기를 사용합니다.
+- 쪽·폭 맞춤 버튼을 하단 배율 오른쪽으로 옮겼습니다. 프로그램 제목은 버전 없이 PDFeather로 표시합니다. 버전은 설정의 정보 페이지에서 확인합니다.
+- PDF 글자를 크게 키운 문서·깃펜 아이콘으로 변경했습니다. 제목 표시줄 로고는 글자 줄 높이에 맞추고 고해상도 디스플레이를 지원합니다. 설치 프로그램은 버전별 ICO 경로를 지정해 바로가기의 이전 아이콘 캐시를 피합니다.
+
+## 이전 변경
 
 - 인쇄 여백: 용지 가장자리 기준 상하좌우 0~100 mm, 모아찍기 간격, 미리보기 안내선. 잘못된 여백 조합은 인쇄 전에 안내합니다.
 - 설정 탭: 라이트 / 다크 모드, 기본 보기·배율, 썸네일, 휠 확대 단계, 페이지 끝 넘김, 창 위치·크기 기억, 인쇄 기본값. 변경 사항은 자동 저장합니다.
@@ -28,7 +38,7 @@
 - 한 면에 1 / 2 / 4 / 6 / 9 / 16페이지, 페이지 범위, 매수
 - 용지에 맞춤 / 실제 크기 / 10~400% 사용자 인쇄 배율
 
-화면 캐시는 64 MiB로 제한하며 개별 비트맵은 1,600만 픽셀 이하입니다. PDF 자체와 Qt 런타임 메모리는 별도입니다. Qt/Python 런타임이 포함되므로 설치 용량이 몇 MB 수준인 초소형 네이티브 앱은 아닙니다. 실제 크기와 시작 시간은 Windows 빌드 후 측정해야 합니다. 무거운 문서는 렌더링 중 UI가 잠시 멈출 수 있습니다. 인쇄는 최대 300dpi의 래스터 출력이며 텍스트 벡터를 보존하지 않습니다.
+화면 캐시는 64 MiB로 제한합니다. 타일은 768×768 픽셀(경계 렌더링용 여유 영역 별도)이며, 페이지 이미지 모드의 개별 비트맵은 1,600만 픽셀 이하입니다. PDF 자체와 Qt 런타임 메모리는 별도입니다. Qt/Python 런타임이 포함되므로 설치 용량이 몇 MB 수준인 초소형 네이티브 앱은 아닙니다. 실제 크기와 시작 시간은 Windows 빌드 후 측정해야 합니다. 무거운 문서는 렌더링 중 UI가 잠시 멈출 수 있습니다. 인쇄는 최대 300dpi의 래스터 출력이며 텍스트 벡터를 보존하지 않습니다.
 
 ## 개발 실행
 
@@ -53,8 +63,8 @@ git remote add origin https://github.com/minnnn0307/PDFeather.git
 git push -u origin main
 ```
 
-2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.1.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.1.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
-3. 버전 배포: `git tag v1.1.0` 후 `git push origin v1.1.0`을 실행하면 설치 EXE가 GitHub Release에 첨부됩니다. 저장소의 Actions 실행/쓰기 권한 정책이 허용되어야 합니다.
+2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.2.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.2.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
+3. 버전 배포: `git tag v1.2.0` 후 `git push origin v1.2.0`을 실행하면 설치 EXE가 GitHub Release에 첨부됩니다. 저장소의 Actions 실행/쓰기 권한 정책이 허용되어야 합니다.
 
 서명 인증서는 포함되어 있지 않습니다. 서명 없는 설치 EXE에는 Windows 보안 경고가 표시될 수 있습니다. GitHub 저장소: https://github.com/minnnn0307/PDFeather
 
@@ -65,7 +75,7 @@ Python 3.12 x64와 Inno Setup 6 설치 후:
 ```powershell
 pip install -r requirements-build.txt
 # 배포본에는 THIRD_PARTY_NOTICES.md와 각 의존성의 라이선스를 함께 포함하세요.
-pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --icon assets/PDFeather.ico --version-file installer/version_info.txt --collect-all pypdfium2 main.py
+pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --icon assets/PDFeather-1.2.0.ico --version-file installer/version_info.txt --collect-all pypdfium2 main.py
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/setup.iss
 ```
 
@@ -73,8 +83,10 @@ pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --icon asse
 
 ## 검증 상태와 제한
 
-자동 검사: 페이지 범위 오류, N-up 배치 계산, 실제 5페이지 PDF 열기/렌더링, 네 가지 보기 모드, 포인터 기준 확대 좌표 보존, 페이지 끝 휠 넘김, 텍스트 검색 결과, 2-up 출력 PDF의 3장 생성, 인쇄 미리보기 중 이벤트 루프 응답, 출력 PDF의 실제 여백, 테마 전환과 설정 영속성, 단일·2페이지 중앙 정렬. Linux와 GitHub Actions의 Windows offscreen Qt 환경에서 수행합니다. 빌드된 Windows EXE 자체에서도 별도 프로세스 미리보기가 생성되는지 검사합니다. Windows 설치/제거, 프린터 드라이버별 양면·매수·용지 적용, 큰 문서 성능은 실제 Windows 장치에서 추가 확인해야 합니다. 양면 기능은 드라이버와 프린터 지원에 따릅니다. 미리보기는 레이아웃을 보여주며 프린터의 물리적 양면 동작은 재현하지 않습니다.
+자동 검사: 타일 결과와 고해상도 기준 이미지의 픽셀 일치, 500% 확대·2배 모니터 배율에서 부분 렌더링과 캐시 제한, 인쇄 배율 기준·입력 활성화, 페이지 범위 오류, N-up 배치 계산, 실제 5페이지 PDF 열기/렌더링, 네 가지 보기 모드, 포인터 기준 확대 좌표 보존, 페이지 끝 휠 넘김, 텍스트 검색 결과, 2-up 출력 PDF의 3장 생성, 인쇄 미리보기 중 이벤트 루프 응답, 출력 PDF의 실제 여백, 테마 전환과 설정 영속성, 단일·2페이지 중앙 정렬. Linux와 GitHub Actions의 Windows offscreen Qt 환경에서 수행합니다. 빌드된 Windows EXE 자체에서도 별도 프로세스 미리보기가 생성되는지 검사합니다. Windows 설치/제거, 프린터 드라이버별 양면·매수·용지 적용, 큰 문서 성능은 실제 Windows 장치에서 추가 확인해야 합니다. 양면 기능은 드라이버와 프린터 지원에 따릅니다. 미리보기는 레이아웃을 보여주며 프린터의 물리적 양면 동작은 재현하지 않습니다.
 
 검색은 PDF 텍스트 레이어를 대상으로 하며 OCR은 포함하지 않습니다. 검색 결과는 최대 10,000개입니다. 프린터 조회가 오래 걸리면 제한 시간 후 미리보기로 이동하며 다시 조회할 수 있습니다. 인쇄 중단 전에 Windows 대기열로 전송된 작업은 대기열에서 취소해야 합니다.
 
 설정은 Windows 사용자별로 저장됩니다. 테마는 앱 UI에 적용하며 PDF 문서의 원래 색은 유지합니다. 인쇄 미리보기의 점선은 출력 영역 안내이며 출력물에는 포함되지 않습니다. 여백 0 mm는 프린터의 무테 인쇄 지원이 필요하고, 하드웨어 인쇄 불가 영역 안의 내용은 잘릴 수 있습니다.
+
+바탕화면 바로가기는 설치 시 “Create a desktop shortcut”을 선택하면 갱신됩니다. 직접 만든 바로가기나 작업 표시줄에 고정한 아이콘은 Windows가 이전 연결을 유지할 수 있으므로 새 설치본을 다시 연결해야 할 수 있습니다.

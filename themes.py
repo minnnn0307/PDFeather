@@ -33,6 +33,17 @@ QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {{ height:0; }}
 QScrollBar:horizontal {{ background:{c['scroll']}; height:11px; margin:0; }}
 QScrollBar::handle:horizontal {{ background:{c['handle']}; min-width:25px; border-radius:4px; margin:2px; }}
 QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal {{ width:0; }}
+#sectionTitle {{ font-size:21px; font-weight:600; }}
+#categoryNav {{ background:{c['title']}; padding-top:14px; }}
+#categoryNav::item {{ padding:13px 16px; margin:3px 8px; border-radius:5px; }}
+#categoryNav::item:selected {{ background:{c['selected']}; color:{c['text']}; }}
+QToolBox::tab {{ background:{c['bar']}; border:1px solid {c['line']}; border-radius:5px; min-height:20px; color:{c['text']}; padding:8px 12px; text-align:left; }}
+QToolBox::tab:selected {{ background:{c['selected']}; font-weight:600; }}
+#sectionHeader {{ text-align:left; padding:8px 12px; background:{c['bar']}; border:1px solid {c['line']}; border-radius:5px; }}
+#sectionHeader:checked {{ background:{c['selected']}; font-weight:600; }}
+#printSection {{ background:{c['window']}; }}
+#primaryButton {{ background:#187f75; color:white; font-weight:600; padding:12px; }}
+QWidget:disabled {{ color:{c['muted']}; }}
 QTabWidget::pane {{ border:0; }}
 QTabBar::tab {{ background:{c['title']}; color:{c['muted']}; padding:9px 25px; border:0; }}
 QTabBar::tab:selected {{ background:{c['bar']}; color:{c['text']}; border-bottom:2px solid #2ca99a; }}

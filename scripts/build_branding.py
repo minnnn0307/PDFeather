@@ -23,4 +23,4 @@ def build(destination):
     path=Path(destination); path.parent.mkdir(parents=True,exist_ok=True); path.write_bytes(header+payload)
 
 
-if __name__=='__main__': build(Path(__file__).resolve().parents[1]/'assets/PDFeather.ico')
+if __name__=='__main__': build(Path(__file__).resolve().parents[1]/'assets/PDFeather-1.2.0.ico')

@@ -38,3 +38,11 @@ def print_cells(page_mm, margins_mm, nup, gap_mm, dpi):
     if cw<=0 or ch<=0: raise ValueError('여백 또는 페이지 간격이 너무 큽니다. 인쇄 영역을 확보하세요.')
     factor=dpi/25.4
     return [((left+(i%cols)*(cw+gap_mm))*factor,(top+(i//cols)*(ch+gap_mm))*factor,cw*factor,ch*factor) for i in range(nup)]
+
+
+def print_placement(size,cell,dpi,percent=100,basis='fit'):
+    """Fit is 100%; actual-size mode explicitly uses the PDF's physical size."""
+    if basis=='actual': return placement(size,cell,dpi,100 if percent is None else percent)
+    x,y,w,h=placement(size,cell,dpi,None)
+    factor=(100 if percent is None else percent)/100
+    return x+w*(1-factor)/2,y+h*(1-factor)/2,w*factor,h*factor

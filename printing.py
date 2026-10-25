@@ -4,7 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QPainter, QPageSize, QPageLayout, QColor, QPen
 from PySide6.QtPrintSupport import QPrinter, QPrinterInfo
-from layout import grid, placement, print_cells
+from layout import grid, placement, print_cells, print_placement
 
 
 def make_printer(settings, output=None, preview=False):
@@ -38,7 +38,7 @@ def paint_document(doc, printer, settings, progress=None):
             if offset and not printer.newPage(): raise RuntimeError('다음 인쇄 페이지를 만들 수 없습니다.')
             for pos, index in enumerate(selected[offset:offset+n]):
                 cell=QRectF(*cells[pos])
-                target = QRectF(*placement(doc.sizes[index], (cell.x(),cell.y(),cell.width(),cell.height()), printer.resolution(), settings['percent']))
+                target = QRectF(*print_placement(doc.sizes[index], (cell.x(),cell.y(),cell.width(),cell.height()), printer.resolution(), settings.get('percent'),settings.get('scale_basis','fit' if settings.get('percent') is None else 'actual')))
                 painter.save(); painter.setClipRect(cell)
                 painter.drawImage(target, doc.image(index, min(300/72, target.width()/doc.sizes[index][0]), cached=False))
                 painter.restore()

@@ -3,8 +3,8 @@ from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QColor, QPen, QIcon
 
 
-def logo_pixmap(size=128, dark=False):
-    pix=QPixmap(size,size); pix.fill(Qt.GlobalColor.transparent)
+def logo_pixmap(size=128, dark=False, dpr=1.):
+    pix=QPixmap(round(size*dpr),round(size*dpr)); pix.setDevicePixelRatio(dpr); pix.fill(Qt.GlobalColor.transparent)
     p=QPainter(pix); p.setRenderHint(QPainter.RenderHint.Antialiasing); p.scale(size/128,size/128)
     paper=QColor('#253647' if dark else '#f8fafc')
     outline=QColor('#637c95' if dark else '#a8b9c9')
@@ -14,15 +14,16 @@ def logo_pixmap(size=128, dark=False):
     p.setPen(QPen(outline,2.5)); p.setBrush(paper); p.drawPath(page)
     fold=QPainterPath(); fold.moveTo(78,8); fold.lineTo(78,26); fold.quadTo(78,32,84,32); fold.lineTo(101,32)
     p.drawPath(fold)
-    # Vector lettering keeps the ICO and runtime logo identical across OS fonts.
-    p.setPen(QPen(ink,4.2,Qt.PenStyle.SolidLine,Qt.PenCapStyle.SquareCap,Qt.PenJoinStyle.RoundJoin)); p.setBrush(Qt.BrushStyle.NoBrush)
-    letters=QPainterPath(); letters.moveTo(31,112); letters.lineTo(31,96); letters.lineTo(38,96); letters.cubicTo(47,96,47,105,38,105); letters.lineTo(31,105)
-    letters.moveTo(52,112); letters.lineTo(52,96); letters.lineTo(57,96); letters.cubicTo(70,96,70,112,57,112); letters.closeSubpath()
-    letters.moveTo(76,112); letters.lineTo(76,96); letters.lineTo(88,96); letters.moveTo(76,103); letters.lineTo(85,103); p.drawPath(letters)
-    feather=QPainterPath(); feather.moveTo(42,85); feather.cubicTo(42,59,67,28,117,17); feather.cubicTo(117,47,104,70,79,78); feather.lineTo(69,70); feather.lineTo(67,82); feather.lineTo(55,82); feather.closeSubpath()
-    p.setPen(QPen(stem,1.3)); p.setBrush(ink); p.drawPath(feather)
-    p.setPen(QPen(stem,3,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap)); p.drawLine(QPointF(33,95),QPointF(105,30))
-    p.setPen(QPen(stem,1.5)); p.drawLine(QPointF(64,67),QPointF(66,49)); p.drawLine(QPointF(79,54),QPointF(96,53)); p.drawLine(QPointF(89,45),QPointF(90,32))
+    feather=QPainterPath(); feather.moveTo(39,70); feather.cubicTo(41,42,70,15,117,9); feather.cubicTo(117,34,103,58,81,67); feather.lineTo(72,58); feather.lineTo(67,70); feather.closeSubpath()
+    p.setPen(QPen(stem,1.8)); p.setBrush(ink); p.drawPath(feather)
+    p.setPen(QPen(stem,3.5,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap)); p.drawLine(QPointF(33,73),QPointF(106,22))
+    p.setPen(QPen(stem,1.7)); p.drawLine(QPointF(62,53),QPointF(65,34)); p.drawLine(QPointF(80,40),QPointF(99,39))
+    # Large high-contrast PDF badge remains legible at desktop icon sizes.
+    p.setPen(Qt.PenStyle.NoPen); p.setBrush(ink); p.drawRoundedRect(QRectF(5,78,113,36),5,5)
+    p.setPen(QPen(QColor('#17312f' if dark else '#ffffff'),5.8,Qt.PenStyle.SolidLine,Qt.PenCapStyle.SquareCap,Qt.PenJoinStyle.RoundJoin)); p.setBrush(Qt.BrushStyle.NoBrush)
+    letters=QPainterPath(); letters.moveTo(24,106); letters.lineTo(24,85); letters.lineTo(34,85); letters.cubicTo(46,85,46,98,34,98); letters.lineTo(24,98)
+    letters.moveTo(54,106); letters.lineTo(54,85); letters.lineTo(61,85); letters.cubicTo(78,85,78,106,61,106); letters.closeSubpath()
+    letters.moveTo(87,106); letters.lineTo(87,85); letters.lineTo(104,85); letters.moveTo(87,94); letters.lineTo(100,94); p.drawPath(letters)
     p.end(); return pix
 
 
