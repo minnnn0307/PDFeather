@@ -3,9 +3,11 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from layout import parse_pages, placement, grid
+from scripts.smoke_fixture import create_pdf
 from PySide6.QtWidgets import QApplication
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtGui import QPainter, QPageSize
@@ -27,16 +29,10 @@ class Tests(unittest.TestCase):
             cols, rows = grid(n); self.assertEqual(cols*rows,n)
 
     def test_document_modes_and_print(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
             source = str(Path(temp)/'input.pdf')
-            printer = QPrinter(); printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat); printer.setOutputFileName(source)
-            printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-            painter = QPainter(printer)
-            for i in range(5):
-                if i: printer.newPage()
-                painter.drawText(100,100,f'Page {i+1}')
-            painter.end()
-            window = Window(); window.open(source)
+            create_pdf(source,5)
+            window = Window(); cleanup.callback(window.close); window.open(source)
             self.assertEqual(len(window.doc.sizes), 5)
             image = window.doc.image(0,1)
             self.assertFalse(image.isNull())
@@ -72,11 +68,11 @@ class Tests(unittest.TestCase):
             self.assertEqual(window.current,1)
             window.show_search(); window.search_input.setText('Page'); window.search_debounce.stop(); window.begin_search()
             for _ in range(6): window.search_step()
-            self.assertEqual(len(window.matches),5)
+            self.assertEqual(len(window.matches),5,window.search_status.text())
             window.next_match(1); self.assertEqual(window.match_index,1)
             # The print dialog must return immediately and keep its event loop alive.
             import time
-            started=time.monotonic(); dialog=PrintWindow(window.doc,window); dialog.show()
+            started=time.monotonic(); dialog=PrintWindow(window.doc,window); cleanup.callback(dialog.close); dialog.show()
             self.assertLess(time.monotonic()-started,3)
             ticks=[]; heartbeat=QTimer(); heartbeat.setInterval(5); heartbeat.timeout.connect(lambda:ticks.append(1)); heartbeat.start()
             deadline=time.monotonic()+20
