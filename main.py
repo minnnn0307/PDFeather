@@ -1,18 +1,50 @@
 import sys
 import os
 import math
+import time
+import tempfile
+import multiprocessing
+import ctypes
 from collections import OrderedDict
 from pathlib import Path
 import pypdfium2 as pdfium
-from PySide6.QtCore import Qt, QRectF, QSize, QTimer
+from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QPoint, QPointF, QEvent
 from PySide6.QtGui import QImage, QPainter, QColor, QIcon, QPixmap, QKeySequence, QShortcut, QPageLayout, QPageSize
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QScrollArea, QToolBar,
     QPushButton, QComboBox, QSpinBox, QLabel, QFileDialog, QMessageBox, QSplitter,
     QListWidget, QListWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QInputDialog)
-from PySide6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewWidget, QPrinterInfo
+    QLineEdit, QInputDialog, QFrame, QSizeGrip)
 from layout import parse_pages, grid, placement
+from widgets import TitleBar, ThumbnailDelegate, tool
 
+
+STYLE = """
+QWidget { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; font-size:12px; color:#e1e6ee; }
+QMainWindow, QDialog, #shell { background:#262c35; }
+#titleBar { background:#171c24; }
+#brand { color:#fff; background:#6577ee; border-radius:5px; padding:3px 7px; font-weight:700; }
+#windowTitle { color:#b9c2d1; padding-left:5px; }
+#toolbar { background:#202630; border-bottom:1px solid #151a21; }
+#footer { background:#202630; border-top:1px solid #151a21; }
+QToolButton { border:0; border-radius:5px; background:transparent; }
+QToolButton:hover { background:#394251; }
+QToolButton:pressed { background:#495770; }
+#closeButton:hover { background:#c42b3c; }
+QComboBox,QSpinBox,QLineEdit { background:#303844; border:1px solid #465061; border-radius:5px; padding:5px 7px; selection-background-color:#586baf; }
+QComboBox QAbstractItemView { background:#303844; selection-background-color:#465a85; }
+QListWidget { background:#242b35; border:0; outline:0; }
+QScrollArea { border:0; background:#363c45; }
+QSplitter::handle { background:#171c24; }
+QPushButton { background:#3e506f; border:0; border-radius:5px; padding:9px 15px; }
+QPushButton:hover { background:#50668e; }
+QPushButton:disabled { background:#343a43; color:#7b8492; }
+QScrollBar:vertical { background:#282f39; width:11px; margin:0; }
+QScrollBar::handle:vertical { background:#667081; min-height:25px; border-radius:4px; margin:2px; }
+QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
+QScrollBar:horizontal { background:#282f39; height:11px; margin:0; }
+QScrollBar::handle:horizontal { background:#667081; min-width:25px; border-radius:4px; margin:2px; }
+QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal { width:0; }
+"""
 
 class Document:
     def __init__(self, path, password=None):
@@ -21,6 +53,7 @@ class Document:
             self.pdf.close()
             raise ValueError('페이지가 없는 PDF입니다.')
         self.path = path
+        self.password = password
         self.sizes = [self.pdf.get_page_size(i) for i in range(len(self.pdf))]
         self.cache = OrderedDict()
         self.cache_bytes = 0
@@ -72,26 +105,27 @@ class Canvas(QWidget):
         two = w.mode.currentIndex() >= 2
         continuous = w.mode.currentIndex() in (1, 3)
         indices = list(range(len(w.doc.sizes))) if continuous else list(range((w.current//2)*2 if two else w.current, min(len(w.doc.sizes), (w.current//2)*2+2 if two else w.current+1)))
-        y, max_width = 24., 0.
-        for start in range(0, len(indices), 2 if two else 1):
-            row = indices[start:start+(2 if two else 1)]
-            sizes = [(i, w.doc.sizes[i][0]*w.zoom, w.doc.sizes[i][1]*w.zoom) for i in row]
-            row_width = sum(s[1] for s in sizes) + 20*(len(row)-1)
-            x = 24.
-            for i, width, height in sizes:
-                self.rects.append((i, QRectF(x, y, width, height)))
-                x += width + 20
-            y += max(s[2] for s in sizes) + 24
-            max_width = max(max_width, row_width+48)
-        self.resize(max(1, math.ceil(max_width)), max(1, math.ceil(y)))
+        rows=[]
+        for start in range(0,len(indices),2 if two else 1):
+            row=indices[start:start+(2 if two else 1)]
+            sizes=[(i,w.doc.sizes[i][0]*w.zoom,w.doc.sizes[i][1]*w.zoom) for i in row]
+            rows.append(sizes)
+        width=max([sum(v[1] for v in row)+(len(row)-1) for row in rows]+[w.scroll.viewport().width()])
+        y=0.
+        for row in rows:
+            x=(width-sum(v[1] for v in row)-(len(row)-1))/2
+            for i,pw,ph in row:
+                self.rects.append((i,QRectF(x,y,pw,ph))); x+=pw+1
+            y+=max(v[2] for v in row)+(1 if continuous else 0)
+        self.resize(max(1,math.ceil(width)),max(w.scroll.viewport().height(),math.ceil(y)))
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(event.rect(), QColor('#e7e9ed'))
+        painter.fillRect(event.rect(), QColor('#363c45'))
         w = self.window
         if not w.doc:
-            painter.setPen(QColor('#566176'))
+            painter.setPen(QColor('#c0c8d6'))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, 'PDF 파일을 열거나 이 창으로 끌어 놓으세요\nCtrl+O')
             return
         try:
@@ -99,6 +133,15 @@ class Canvas(QWidget):
                 if rect.intersects(QRectF(event.rect())):
                     painter.fillRect(rect, Qt.GlobalColor.white)
                     painter.drawImage(rect, w.doc.image(i, w.zoom))
+                    if w.mode.currentIndex() in (1,3):
+                        painter.setPen(QColor('#9ca3af'))
+                        painter.drawLine(QPointF(rect.left(),rect.bottom()),QPointF(rect.right(),rect.bottom()))
+                    for match_no,(page_no,boxes) in enumerate(w.matches):
+                        if page_no!=i: continue
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(QColor(255,151,45,145) if match_no==w.match_index else QColor(255,220,40,100))
+                        for l,b,r,t in boxes:
+                            painter.drawRect(QRectF(rect.x()+l*w.zoom,rect.y()+(w.doc.sizes[i][1]-t)*w.zoom,(r-l)*w.zoom,(t-b)*w.zoom))
         except Exception as exc:
             painter.drawText(event.rect(), Qt.AlignmentFlag.AlignCenter, f'렌더링 오류: {exc}')
 
@@ -106,142 +149,293 @@ class Canvas(QWidget):
 class PrintWindow(QDialog):
     def __init__(self, doc, parent):
         super().__init__(parent)
-        self.doc = doc
-        self.setWindowTitle('인쇄 · 미리보기')
-        self.resize(1100, 760)
-        self.printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        self.printer.setResolution(300)
-        self.printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-        self.printer.setDocName(Path(doc.path).name)
-        self.pages = QLineEdit()
-        self.pages.setPlaceholderText('전체 (예: 1-3,5)')
-        self.orientation = QComboBox(); self.orientation.addItems(['세로', '가로'])
-        self.duplex = QComboBox(); self.duplex.addItems(['단면', '양면 · 긴 쪽 넘김', '양면 · 짧은 쪽 넘김'])
-        self.nup = QComboBox(); self.nup.addItems(['1', '2', '4', '6', '9', '16'])
-        self.scale_mode = QComboBox(); self.scale_mode.addItems(['용지에 맞춤', '실제 크기 (100%)', '사용자 배율'])
-        self.scale = QSpinBox(); self.scale.setRange(10, 400); self.scale.setValue(100); self.scale.setSuffix('%')
-        self.paper = QComboBox(); self.paper.addItems(['A4', 'A3', 'Letter', 'Legal'])
-        self.devices = QComboBox(); self.devices.addItems(QPrinterInfo.availablePrinterNames())
-        self.copies = QSpinBox(); self.copies.setRange(1, 999)
-        self.error = QLabel(); self.error.setWordWrap(True); self.error.setStyleSheet('color:#b42318')
-        form = QFormLayout()
-        for label, control in [('프린터', self.devices), ('용지', self.paper), ('페이지', self.pages), ('방향', self.orientation), ('양면', self.duplex), ('한 면당 페이지', self.nup), ('배율', self.scale_mode), ('사용자 배율', self.scale), ('매수', self.copies)]:
-            form.addRow(label, control)
-        settings = QWidget(); side = QVBoxLayout(settings); side.addLayout(form)
-        side.addWidget(QLabel('사용자 배율은 각 칸의 중앙을 기준으로 적용됩니다.\n칸을 벗어나는 부분은 잘립니다.\n양면은 프린터 지원이 필요합니다.'))
-        refresh = QPushButton('미리보기 갱신'); refresh.clicked.connect(self.refresh)
-        native = QPushButton('프린터 속성…'); native.clicked.connect(self.native_settings)
-        submit = QPushButton('인쇄'); submit.clicked.connect(self.submit)
-        side.addWidget(refresh); side.addWidget(native); side.addWidget(submit); side.addWidget(self.error); side.addStretch()
-        self.preview = QPrintPreviewWidget(self.printer, self)
-        self.preview.paintRequested.connect(self.paint_preview)
-        root = QHBoxLayout(self); root.addWidget(settings, 0); root.addWidget(self.preview, 1)
-        self.timer = QTimer(self); self.timer.setSingleShot(True); self.timer.setInterval(300); self.timer.timeout.connect(self.refresh)
-        for box in [self.orientation, self.duplex, self.nup, self.scale_mode, self.paper, self.devices]:
-            box.currentIndexChanged.connect(lambda *_: self.timer.start())
-        self.pages.textChanged.connect(lambda *_: self.timer.start())
-        self.scale.valueChanged.connect(lambda *_: self.timer.start())
-        QTimer.singleShot(0, self.refresh)
+        self.doc=doc; self.process=None; self.connection=None; self.kind=None
+        self.temp=tempfile.TemporaryDirectory(prefix='pdfeather-print-')
+        self.setWindowTitle('PDFeather · 인쇄'); self.resize(1100,780)
+        self.pages=QLineEdit(); self.pages.setPlaceholderText('전체 (예: 1-3,5)')
+        self.orientation=QComboBox(); self.orientation.addItems(['세로','가로'])
+        self.duplex=QComboBox(); self.duplex.addItems(['단면','양면 · 긴 쪽 넘김','양면 · 짧은 쪽 넘김'])
+        self.nup=QComboBox(); self.nup.addItems(['1','2','4','6','9','16'])
+        self.scale_mode=QComboBox(); self.scale_mode.addItems(['용지에 맞춤','실제 크기 (100%)','사용자 배율'])
+        self.scale=QSpinBox(); self.scale.setRange(10,400); self.scale.setValue(100); self.scale.setSuffix('%')
+        self.paper=QComboBox(); self.paper.addItems(['A4','A3','Letter','Legal'])
+        self.devices=QComboBox(); self.devices.setPlaceholderText('프린터 조회 중…')
+        self.copies=QSpinBox(); self.copies.setRange(1,999)
+        self.sheet=QSpinBox(); self.sheet.setRange(1,1)
+        self.sheets=QLabel('/ 1 면')
+        self.error=QLabel(); self.error.setWordWrap(True)
+        self.state=QLabel('프린터 조회 중…'); self.state.setWordWrap(True)
+        form=QFormLayout()
+        for label,control in [('프린터',self.devices),('용지',self.paper),('페이지',self.pages),('방향',self.orientation),('양면',self.duplex),('한 면당 페이지',self.nup),('배율',self.scale_mode),('사용자 배율',self.scale),('매수',self.copies)]: form.addRow(label,control)
+        self.settings_widget=QWidget(); side=QVBoxLayout(self.settings_widget); side.addLayout(form)
+        hint=QLabel('사용자 배율은 각 칸 중앙 기준이며\n칸 밖은 잘립니다. 양면은 프린터 지원이 필요합니다.'); hint.setWordWrap(True); side.addWidget(hint)
+        self.submit_button=QPushButton('인쇄'); self.submit_button.clicked.connect(self.submit); side.addWidget(self.submit_button)
+        retry=QPushButton('프린터 다시 조회'); retry.clicked.connect(lambda:self.start_job('devices',{}) if self.kind!='print' else None); side.addWidget(retry)
+        self.cancel_button=QPushButton('작업 중단'); self.cancel_button.clicked.connect(self.cancel_job); side.addWidget(self.cancel_button)
+        side.addWidget(self.state); side.addWidget(self.error); side.addStretch()
+        self.preview_label=QLabel('미리보기 준비 중…'); self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_area=QScrollArea(); self.preview_area.setWidgetResizable(True); self.preview_area.setWidget(self.preview_label)
+        preview_box=QWidget(); preview_layout=QVBoxLayout(preview_box); preview_layout.setContentsMargins(0,0,0,0)
+        nav=QHBoxLayout(); nav.addStretch(); nav.addWidget(tool('prev','이전 용지',lambda:self.sheet.setValue(self.sheet.value()-1))); nav.addWidget(self.sheet); nav.addWidget(self.sheets); nav.addWidget(tool('next','다음 용지',lambda:self.sheet.setValue(self.sheet.value()+1))); nav.addStretch()
+        preview_layout.addLayout(nav); preview_layout.addWidget(self.preview_area)
+        root=QHBoxLayout(self); root.addWidget(self.settings_widget,0); root.addWidget(preview_box,1)
+        self.timer=QTimer(self); self.timer.setSingleShot(True); self.timer.setInterval(300); self.timer.timeout.connect(self.refresh)
+        self.poll_timer=QTimer(self); self.poll_timer.setInterval(70); self.poll_timer.timeout.connect(self.poll); self.poll_timer.start()
+        for box in [self.orientation,self.duplex,self.nup,self.scale_mode,self.paper]: box.currentIndexChanged.connect(self.schedule)
+        self.pages.textChanged.connect(self.schedule); self.scale.valueChanged.connect(self.schedule); self.sheet.valueChanged.connect(self.schedule)
+        self.start_job('devices',{})
 
-    def configure(self):
-        self.selected = parse_pages(self.pages.text(), len(self.doc.sizes))
-        if self.devices.currentText(): self.printer.setPrinterName(self.devices.currentText())
-        self.printer.setPageSize(QPageSize(getattr(QPageSize.PageSizeId, self.paper.currentText())))
-        self.printer.setPageOrientation(QPageLayout.Orientation.Landscape if self.orientation.currentIndex() else QPageLayout.Orientation.Portrait)
-        self.printer.setDuplex([QPrinter.DuplexMode.DuplexNone, QPrinter.DuplexMode.DuplexLongSide, QPrinter.DuplexMode.DuplexShortSide][self.duplex.currentIndex()])
-        self.printer.setCopyCount(self.copies.value())
-        self.printer.setFullPage(False)
+    def settings(self):
+        selected=parse_pages(self.pages.text(),len(self.doc.sizes))
+        count=math.ceil(len(selected)/int(self.nup.currentText()))
+        self.sheet.blockSignals(True); self.sheet.setMaximum(count); self.sheet.blockSignals(False); self.sheets.setText(f'/ {count} 면')
+        return dict(path=self.doc.path,password=self.doc.password,selected=selected,nup=int(self.nup.currentText()),
+            percent=None if self.scale_mode.currentIndex()==0 else 100 if self.scale_mode.currentIndex()==1 else self.scale.value(),
+            paper=self.paper.currentText(),landscape=bool(self.orientation.currentIndex()),duplex=self.duplex.currentIndex(),
+            copies=self.copies.value(),device=self.devices.currentText(),sheet=self.sheet.value()-1)
+
+    def schedule(self,*_):
+        if self.kind=='print': return
+        self.timer.start()
+
+    def start_job(self,kind,settings):
+        from printing import run_job
+        self.stop_job()
+        context=multiprocessing.get_context('spawn')
+        receiver,sender=context.Pipe(duplex=False)
+        self.connection=receiver; self.kind=kind
+        self.process=context.Process(target=run_job,args=(sender,kind,settings,self.temp.name),daemon=True)
+        self.process.start(); sender.close()
+        self.started=time.monotonic()
+        self.set_busy(kind=='print')
+
+    def set_busy(self,busy):
+        for control in [self.pages,self.orientation,self.duplex,self.nup,self.scale_mode,self.scale,self.paper,self.devices,self.copies,self.sheet,self.submit_button]: control.setEnabled(not busy)
+
+    def stop_job(self):
+        if self.process:
+            if self.process.is_alive(): self.process.terminate()
+            self.process.join(timeout=.2)
+            if not self.process.is_alive(): self.process.close()
+            self.process=None
+        if self.connection: self.connection.close(); self.connection=None
+        self.kind=None; self.set_busy(False)
 
     def refresh(self):
+        if self.kind=='print': return
+        if self.kind=='devices': return
         try:
-            self.configure(); self.error.clear(); self.preview.updatePreview()
+            settings=self.settings(); self.error.clear(); self.state.setText('용지 미리보기 생성 중…'); self.preview_label.setText('미리보기 생성 중…')
+            self.start_job('preview',settings)
         except Exception as exc: self.error.setText(str(exc))
 
-    def paint_preview(self, printer):
-        try: self.paint(printer)
-        except Exception as exc: self.error.setText(str(exc))
-
-    def native_settings(self):
-        try: self.configure()
-        except ValueError as exc: self.error.setText(str(exc)); return
-        dialog = QPrintDialog(self.printer, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.devices.setCurrentText(self.printer.printerName())
-            self.orientation.setCurrentIndex(int(self.printer.pageLayout().orientation() == QPageLayout.Orientation.Landscape))
-            modes = [QPrinter.DuplexMode.DuplexNone, QPrinter.DuplexMode.DuplexLongSide, QPrinter.DuplexMode.DuplexShortSide]
-            if self.printer.duplex() in modes: self.duplex.setCurrentIndex(modes.index(self.printer.duplex()))
-            self.copies.setValue(self.printer.copyCount())
-            self.refresh()
+    def poll(self):
+        if not self.connection: return
+        try:
+            while self.connection.poll():
+                message=self.connection.recv(); kind=message[0]
+                if kind=='devices':
+                    self.devices.clear(); self.devices.addItems(message[1]); self.devices.setCurrentText(message[2])
+                    self.state.setText(''); self.stop_job(); self.refresh(); return
+                if kind=='preview':
+                    pix=QPixmap(message[1]); self.preview_label.setPixmap(pix.scaled(QSize(720,850),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
+                    self.state.setText('미리보기 · 선택한 용지 1면'); self.stop_job(); return
+                if kind=='progress': self.state.setText(f'인쇄 데이터 전송 중… {message[1]} / {message[2]} 면')
+                if kind=='done':
+                    self.stop_job(); self.settings_widget.setEnabled(True); self.submit_button.setEnabled(True); self.state.setText('프린터로 전송했습니다.'); return
+                if kind=='error':
+                    self.error.setText(message[1]); self.stop_job(); self.settings_widget.setEnabled(True); self.submit_button.setEnabled(True); return
+        except (EOFError,OSError):
+            self.error.setText('인쇄 작업이 종료되었습니다. 다시 시도하세요.'); self.stop_job(); self.submit_button.setEnabled(True); return
+        if self.process and not self.process.is_alive():
+            self.error.setText('인쇄 작업이 비정상 종료되었습니다.'); self.stop_job(); self.submit_button.setEnabled(True)
+        elif self.kind=='devices' and time.monotonic()-self.started>12:
+            self.stop_job(); self.state.setText('프린터 조회 시간이 초과되었습니다. 프린터 연결을 확인하세요.'); self.refresh()
 
     def submit(self):
         try:
-            self.configure()
-            if not self.devices.currentText(): raise ValueError('사용 가능한 프린터가 없습니다.')
-            self.paint(self.printer)
-        except Exception as exc: self.error.setText(str(exc)); return
-        self.accept()
+            settings=self.settings()
+            if not settings['device']: raise ValueError('사용 가능한 프린터가 없습니다.')
+            self.timer.stop(); self.state.setText('프린터에 연결 중…'); self.start_job('print',settings)
+        except Exception as exc: self.error.setText(str(exc))
 
-    def paint(self, printer):
-        selected = parse_pages(self.pages.text(), len(self.doc.sizes))
-        n = int(self.nup.currentText()); cols, rows = grid(n)
-        area = printer.pageRect(QPrinter.Unit.DevicePixel)
-        cw, ch = area.width()/cols, area.height()/rows
-        percent = None if self.scale_mode.currentIndex() == 0 else 100 if self.scale_mode.currentIndex() == 1 else self.scale.value()
-        painter = QPainter()
-        if not painter.begin(printer): raise RuntimeError('인쇄 장치를 열 수 없습니다.')
-        try:
-            for offset in range(0, len(selected), n):
-                if offset and not printer.newPage(): raise RuntimeError('다음 인쇄 페이지를 만들 수 없습니다.')
-                for pos, index in enumerate(selected[offset:offset+n]):
-                    cell = QRectF((pos%cols)*cw, (pos//cols)*ch, cw, ch).adjusted(8, 8, -8, -8)
-                    target = QRectF(*placement(self.doc.sizes[index], (cell.x(),cell.y(),cell.width(),cell.height()), printer.resolution(), percent))
-                    scale = min(4.167, target.width()/self.doc.sizes[index][0])
-                    painter.save(); painter.setClipRect(cell)
-                    painter.drawImage(target, self.doc.image(index, scale, cached=False)); painter.restore()
-        finally: painter.end()
+    def cancel_job(self):
+        printing=self.kind=='print'; self.stop_job(); self.timer.stop(); self.settings_widget.setEnabled(True); self.submit_button.setEnabled(True)
+        self.state.setText('중단했습니다. 이미 전송된 작업은 Windows 인쇄 대기열에서 취소하세요.' if printing else '작업을 중단했습니다.')
+
+    def done(self,result):
+        self.timer.stop(); self.poll_timer.stop(); self.stop_job(); self.temp.cleanup(); super().done(result)
 
 
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.doc = None; self.current = 0; self.zoom = 1.0
-        self.setWindowTitle('PDFeather 1.0.0'); self.resize(1200, 850); self.setAcceptDrops(True)
-        bar = QToolBar(); bar.setMovable(False); self.addToolBar(bar)
-        def button(text, callback):
-            b = QPushButton(text); b.clicked.connect(callback); bar.addWidget(b); return b
-        button('파일 열기', self.choose)
-        button('−', lambda: self.set_zoom(self.zoom/1.15))
-        self.zoom_box = QSpinBox(); self.zoom_box.setRange(10, 500); self.zoom_box.setSuffix('%'); self.zoom_box.setValue(100)
-        self.zoom_box.valueChanged.connect(lambda v: self.set_zoom(v/100)); bar.addWidget(self.zoom_box)
-        button('+', lambda: self.set_zoom(self.zoom*1.15))
-        self.mode = QComboBox(); self.mode.addItems(['단일', '단일 스크롤', '2페이지', '2페이지 스크롤']); self.mode.setCurrentIndex(1)
-        self.mode.currentIndexChanged.connect(self.change_mode); bar.addWidget(self.mode)
-        button('이전', lambda: self.go(self.current-(2 if self.mode.currentIndex()>=2 else 1)))
-        self.page = QSpinBox(); self.page.setRange(1,1); self.page.valueChanged.connect(lambda v: self.go(v-1)); bar.addWidget(self.page)
-        self.total = QLabel(' / 0  '); bar.addWidget(self.total)
-        button('다음', lambda: self.go(self.current+(2 if self.mode.currentIndex()>=2 else 1)))
-        button('PDF 정보', self.info); button('인쇄', self.print_document)
-        self.thumbs = QListWidget(); self.thumbs.setIconSize(QSize(112, 150)); self.thumbs.setMinimumWidth(150)
-        self.thumbs.currentRowChanged.connect(self.go)
-        self.scroll = QScrollArea(); self.scroll.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.canvas = Canvas(self); self.scroll.setWidget(self.canvas)
-        split = QSplitter(); split.addWidget(self.thumbs); split.addWidget(self.scroll); split.setSizes([170, 1030]); self.setCentralWidget(split)
+        self.doc=None; self.current=0; self.zoom=1.; self.fit_mode=None; self.last_flip=0
+        self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=''; self.suppress_scroll=False
+        self.setWindowFlags(Qt.WindowType.Window|Qt.WindowType.FramelessWindowHint)
+        self.setWindowTitle('PDFeather 1.0.0'); self.resize(1200,850); self.setMinimumSize(760,480); self.setAcceptDrops(True)
+        shell=QWidget(); shell.setObjectName('shell'); root=QVBoxLayout(shell); root.setSpacing(0); root.setContentsMargins(0,0,0,0)
+        self.titlebar=TitleBar(self); root.addWidget(self.titlebar)
+        toolbar=QWidget(); toolbar.setObjectName('toolbar'); bar=QHBoxLayout(toolbar); bar.setContentsMargins(10,7,12,7); bar.setSpacing(6)
+        for name,tip,callback in [('sidebar','썸네일 표시 / 숨기기',self.toggle_sidebar),('open','파일 열기 · Ctrl+O',self.choose),('print','인쇄 · Ctrl+P',self.print_document),('search','찾기 · Ctrl+F',self.show_search)]: bar.addWidget(tool(name,tip,callback))
+        bar.addSpacing(12)
+        self.mode=QComboBox(); self.mode.addItems(['단일','단일 스크롤','2페이지','2페이지 스크롤']); self.mode.setCurrentIndex(1); self.mode.currentIndexChanged.connect(self.change_mode); bar.addWidget(self.mode)
+        bar.addWidget(tool('fit','쪽 맞추기 · Ctrl+0',lambda:self.fit('page'))); bar.addWidget(tool('width','너비 맞추기 · Ctrl+1',lambda:self.fit('width')))
+        bar.addStretch(); bar.addWidget(tool('info','PDF 정보',self.info)); bar.addWidget(tool('help','도움말 · F1',self.help))
+        root.addWidget(toolbar)
+        self.search_bar=QWidget(); search_layout=QHBoxLayout(self.search_bar); search_layout.setContentsMargins(12,5,12,5)
+        self.search_input=QLineEdit(); self.search_input.setPlaceholderText('문서에서 찾기 · Enter 다음 / Shift+Enter 이전')
+        self.search_status=QLabel(''); search_layout.addWidget(self.search_input,1); search_layout.addWidget(self.search_status)
+        search_layout.addWidget(tool('prev','이전 검색 결과',lambda:self.next_match(-1))); search_layout.addWidget(tool('next','다음 검색 결과',lambda:self.next_match(1))); search_layout.addWidget(tool('close','찾기 닫기 · Esc',self.hide_search))
+        self.search_bar.hide(); root.addWidget(self.search_bar)
+        self.search_debounce=QTimer(self); self.search_debounce.setSingleShot(True); self.search_debounce.setInterval(250); self.search_debounce.timeout.connect(self.begin_search)
+        self.search_timer=QTimer(self); self.search_timer.setInterval(1); self.search_timer.timeout.connect(self.search_step)
+        self.search_input.textChanged.connect(lambda *_:self.search_debounce.start()); self.search_input.returnPressed.connect(lambda:self.next_match(-1 if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else 1))
+        self.thumbs=QListWidget(); self.thumbs.setIconSize(QSize(130,165)); self.thumbs.setMinimumWidth(140); self.thumbs.setItemDelegate(ThumbnailDelegate(self.thumbs)); self.thumbs.currentRowChanged.connect(self.go)
+        self.scroll=QScrollArea(); self.scroll.setFrameShape(QFrame.Shape.NoFrame); self.scroll.setAlignment(Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop)
+        self.canvas=Canvas(self); self.scroll.setWidget(self.canvas)
+        self.split=QSplitter(); self.split.setHandleWidth(1); self.split.addWidget(self.thumbs); self.split.addWidget(self.scroll); self.split.setSizes([164,1036]); root.addWidget(self.split,1)
+        footer=QWidget(); footer.setObjectName('footer'); bottom=QHBoxLayout(footer); bottom.setContentsMargins(10,4,7,4)
+        left=QWidget(); left.setMinimumWidth(210); bottom.addWidget(left,1)
+        nav=QHBoxLayout(); nav.setSpacing(4)
+        nav.addWidget(tool('prev','이전 페이지 · PageUp',lambda:self.turn(-1)))
+        self.page=QSpinBox(); self.page.setRange(1,1); self.page.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons); self.page.setAlignment(Qt.AlignmentFlag.AlignCenter); self.page.setFixedWidth(58); self.page.valueChanged.connect(lambda v:self.go(v-1)); nav.addWidget(self.page)
+        self.total=QLabel('/ 0'); nav.addWidget(self.total); nav.addWidget(tool('next','다음 페이지 · PageDown',lambda:self.turn(1)))
+        bottom.addLayout(nav)
+        right=QHBoxLayout(); right.setSpacing(2); right.addStretch(); right.addWidget(tool('minus','축소 · Ctrl+−',lambda:self.set_zoom(self.zoom/1.15)))
+        self.zoom_box=QSpinBox(); self.zoom_box.setRange(10,500); self.zoom_box.setValue(100); self.zoom_box.setSuffix('%'); self.zoom_box.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons); self.zoom_box.setAlignment(Qt.AlignmentFlag.AlignCenter); self.zoom_box.setFixedWidth(66); self.zoom_box.valueChanged.connect(lambda v:self.set_zoom(v/100)); right.addWidget(self.zoom_box)
+        right.addWidget(tool('plus','확대 · Ctrl++',lambda:self.set_zoom(self.zoom*1.15))); right.addWidget(QSizeGrip(self))
+        rw=QWidget(); rw.setMinimumWidth(210); rw.setLayout(right); right.setContentsMargins(0,0,0,0); bottom.addWidget(rw,1)
+        root.addWidget(footer); self.setCentralWidget(shell)
         self.scroll.verticalScrollBar().valueChanged.connect(self.scrolled)
         self.thumbs.verticalScrollBar().valueChanged.connect(self.queue_thumbs)
-        self.thumb_timer = QTimer(self); self.thumb_timer.setSingleShot(True); self.thumb_timer.timeout.connect(self.render_thumbs)
-        self.statusBar().showMessage('오프라인 PDF 리더 · Ctrl+휠 확대/축소 · Ctrl+O 열기 · Ctrl+P 인쇄')
-        QShortcut(QKeySequence.StandardKey.Open, self, activated=self.choose)
-        QShortcut(QKeySequence.StandardKey.Print, self, activated=self.print_document)
+        self.thumb_timer=QTimer(self); self.thumb_timer.setSingleShot(True); self.thumb_timer.timeout.connect(self.render_thumbs)
+        for key,callback in [(QKeySequence.StandardKey.Open,self.choose),(QKeySequence.StandardKey.Print,self.print_document),(QKeySequence.StandardKey.Find,self.show_search),('Escape',self.hide_search),('F1',self.help),('F3',lambda:self.next_match(1)),('Shift+F3',lambda:self.next_match(-1)),('Ctrl+0',lambda:self.fit('page')),('Ctrl+1',lambda:self.fit('width')),('Ctrl+=',lambda:self.set_zoom(self.zoom*1.15)),('Ctrl+-',lambda:self.set_zoom(self.zoom/1.15)),('PgDown',lambda:self.turn(1)),('PgUp',lambda:self.turn(-1))]: QShortcut(QKeySequence(key),self,activated=callback)
         QApplication.instance().installEventFilter(self)
         self.canvas.arrange()
+        self.setStyleSheet(STYLE)
 
-    def eventFilter(self, obj, event):
-        from PySide6.QtCore import QEvent
-        if event.type() == QEvent.Type.Wheel and event.modifiers() & Qt.KeyboardModifier.ControlModifier and self.isActiveWindow() and QApplication.activeModalWidget() is None:
-            delta = event.angleDelta().y()
-            if delta: self.set_zoom(self.zoom * (1.15 if delta>0 else 1/1.15))
-            event.accept(); return True
-        return super().eventFilter(obj, event)
+    def eventFilter(self,obj,event):
+        if event.type()==QEvent.Type.Resize and obj==self.scroll.viewport():
+            QTimer.singleShot(0,self.refit)
+        if event.type()==QEvent.Type.MouseButtonPress and event.button()==Qt.MouseButton.LeftButton and not self.isMaximized() and isinstance(obj,QWidget) and obj.window()==self:
+            pt=self.mapFromGlobal(event.globalPosition().toPoint()); edges=Qt.Edge(0)
+            if pt.x()<5: edges|=Qt.Edge.LeftEdge
+            if pt.x()>self.width()-5: edges|=Qt.Edge.RightEdge
+            if pt.y()<5: edges|=Qt.Edge.TopEdge
+            if pt.y()>self.height()-5: edges|=Qt.Edge.BottomEdge
+            if edges and self.windowHandle() and self.windowHandle().startSystemResize(edges): return True
+        if event.type()==QEvent.Type.Wheel and QApplication.activeModalWidget() is None and obj==self.scroll.viewport():
+            delta=event.angleDelta().y() or event.pixelDelta().y()
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                if delta: self.set_zoom(self.zoom*(1.15 if delta>0 else 1/1.15),event.position().toPoint())
+                event.accept(); return True
+            if self.doc and self.mode.currentIndex() in (0,2) and delta:
+                sb=self.scroll.verticalScrollBar()
+                direction=1 if delta<0 else -1
+                at_edge=sb.value()>=sb.maximum() if direction>0 else sb.value()<=sb.minimum()
+                if at_edge:
+                    if time.monotonic()-self.last_flip>.3:
+                        self.turn(direction); self.last_flip=time.monotonic()
+                        sb.setValue(0 if direction>0 else sb.maximum())
+                    event.accept(); return True
+        if event.type()==QEvent.Type.KeyPress and obj==self.search_input and event.key()==Qt.Key.Key_Escape: self.hide_search(); return True
+        return super().eventFilter(obj,event)
+
+    def turn(self,direction):
+        if not self.doc: return
+        step=2 if self.mode.currentIndex()>=2 else 1
+        self.go(max(0,min(len(self.doc.sizes)-1,self.current+direction*step)))
+        if self.mode.currentIndex() in (0,2): self.scroll.verticalScrollBar().setValue(0 if direction>0 else self.scroll.verticalScrollBar().maximum())
+
+    def toggle_sidebar(self):
+        self.thumbs.setVisible(self.thumbs.isHidden())
+        QTimer.singleShot(0,self.refit)
+
+    def refit(self):
+        if self.fit_mode: self.fit(self.fit_mode)
+        else: self.canvas.arrange()
+        self.queue_thumbs()
+
+    def fit(self,kind):
+        if not self.doc: return
+        index=(self.current//2)*2 if self.mode.currentIndex()>=2 else self.current
+        sizes=self.doc.sizes[index:index+(2 if self.mode.currentIndex()>=2 else 1)]
+        width=sum(s[0] for s in sizes); height=max(s[1] for s in sizes)
+        available=self.scroll.viewport().size()
+        factor=(available.width()-2)/width
+        if kind=='page': factor=min(factor,(available.height()-2)/height)
+        self.set_zoom(factor,keep_fit=True); self.fit_mode=kind
+        rect=next((r for i,r in self.canvas.rects if i==index),None)
+        if rect:
+            self.suppress_scroll=True
+            self.scroll.verticalScrollBar().setValue(round(rect.top()))
+            self.scroll.horizontalScrollBar().setValue(max(0,round(rect.center().x()-available.width()/2)))
+            self.suppress_scroll=False
+
+    def show_search(self):
+        self.search_bar.show(); self.search_input.setFocus(); self.search_input.selectAll()
+
+    def hide_search(self):
+        self.search_bar.hide(); self.search_timer.stop(); self.search_debounce.stop(); self.matches=[]; self.match_index=-1; self.canvas.update(); self.scroll.setFocus()
+
+    def begin_search(self):
+        self.search_timer.stop(); self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=self.search_input.text().strip()
+        self.canvas.update()
+        if not self.doc or not self.search_query: self.search_status.setText(''); return
+        self.search_status.setText('검색 중…'); self.search_timer.start()
+
+    def search_step(self):
+        if not self.doc or self.search_page>=len(self.doc.sizes):
+            self.search_timer.stop(); self.update_search_status(); return
+        index=self.search_page; self.search_page+=1
+        page=self.doc.pdf[index]; text=None; search=None
+        try:
+            text=page.get_textpage(); search=text.search(self.search_query)
+            while len(self.matches)<10000:
+                occurrence=search.get_next()
+                if occurrence is None: break
+                start,count=occurrence
+                rectangles=[]
+                # Use PDFium's display transform for rotated/cropped pages too.
+                width,height=self.doc.sizes[index]
+                for j in range(text.count_rects(start,count)):
+                    l,b,r,t=text.get_rect(j); points=[]
+                    for x,y in ((l,b),(l,t),(r,b),(r,t)):
+                        dx,dy=ctypes.c_int(),ctypes.c_int()
+                        pdfium.raw.FPDF_PageToDevice(page,0,0,round(width*10),round(height*10),0,x,y,ctypes.byref(dx),ctypes.byref(dy))
+                        points.append((dx.value/10,dy.value/10))
+                    rectangles.append((min(v[0] for v in points),height-max(v[1] for v in points),max(v[0] for v in points),height-min(v[1] for v in points)))
+                self.matches.append((index,rectangles))
+            if len(self.matches)>=10000: self.search_timer.stop()
+        except Exception as exc:
+            self.search_status.setText(f'검색 오류: {exc}'); self.search_timer.stop(); return
+        finally:
+            if search: search.close()
+            if text: text.close()
+            page.close()
+        if self.matches and self.match_index<0: self.match_index=0; self.reveal_match()
+        self.update_search_status(); self.canvas.update()
+
+    def update_search_status(self):
+        suffix=' · 검색 중' if self.search_timer.isActive() else ''
+        if len(self.matches)>=10000: suffix=' · 최대 10,000개'
+        self.search_status.setText(f'{self.match_index+1 if self.matches else 0} / {len(self.matches)}{suffix}' if self.matches else ('검색 중…' if self.search_timer.isActive() else '결과 없음 · 스캔 문서는 OCR 필요'))
+
+    def next_match(self,direction):
+        if not self.matches: return
+        self.match_index=(self.match_index+direction)%len(self.matches); self.reveal_match(); self.update_search_status()
+
+    def reveal_match(self):
+        index,boxes=self.matches[self.match_index]; self.go(index)
+        rect=next((r for i,r in self.canvas.rects if i==index),None)
+        if rect and boxes:
+            l,b,r,t=boxes[0]; point=QPoint(round(rect.x()+(l+r)*self.zoom/2),round(rect.y()+(self.doc.sizes[index][1]-(b+t)/2)*self.zoom))
+            self.scroll.ensureVisible(point.x(),point.y(),50,80)
+        self.canvas.update()
+
+    def help(self):
+        QMessageBox.information(self,'PDFeather · 도움말','Ctrl+O  파일 열기\nCtrl+P  인쇄\nCtrl+F  찾기\nEnter / F3  다음 결과\nShift+Enter / Shift+F3  이전 결과\nEsc  찾기 닫기\nCtrl+휠  포인터 기준 확대·축소\nCtrl++ / Ctrl+−  확대·축소\nCtrl+0  쪽 맞추기\nCtrl+1  너비 맞추기\nPageUp / PageDown  이전·다음 페이지\n\n단일 / 2페이지 보기: 맨 아래에서 휠을 더 내리면 다음 페이지, 맨 위에서 올리면 이전 페이지\n제목 표시줄: 끌어서 이동, 두 번 클릭으로 최대화 / 복원\n창 가장자리와 오른쪽 아래에서 크기 조절')
 
     def choose(self):
         path, _ = QFileDialog.getOpenFileName(self, 'PDF 열기', '', 'PDF (*.pdf)')
@@ -255,14 +449,16 @@ class Window(QMainWindow):
                 if not ok: return
                 new = Document(path, password)
         except Exception as exc: QMessageBox.warning(self, '열기 실패', str(exc)); return
+        self.search_timer.stop(); self.search_debounce.stop(); self.matches=[]; self.match_index=-1
         old = self.doc; self.doc = new
         if old: old.close()
         self.current = 0; self.thumbs.blockSignals(True); self.thumbs.clear()
         for i in range(len(new.sizes)):
-            item = QListWidgetItem(f'{i+1} 페이지'); item.setSizeHint(QSize(130, 175)); self.thumbs.addItem(item)
+            item = QListWidgetItem(str(i+1)); item.setSizeHint(QSize(140, 185)); self.thumbs.addItem(item)
         self.thumbs.blockSignals(False)
         self.page.setMaximum(len(new.sizes)); self.total.setText(f' / {len(new.sizes)}  ')
-        self.setWindowTitle(f'{Path(path).name} — PDFeather 1.0.0'); self.canvas.arrange(); self.go(0); self.queue_thumbs()
+        self.setWindowTitle(f'{Path(path).name} — PDFeather 1.0.0'); self.canvas.arrange(); self.go(0); self.fit('page'); self.queue_thumbs()
+        if self.search_bar.isVisible(): self.begin_search()
 
     def queue_thumbs(self, *_): self.thumb_timer.start(30)
 
@@ -280,24 +476,44 @@ class Window(QMainWindow):
         for i in range(self.thumbs.count()):
             if abs(i-max(0,top))>30: self.thumbs.item(i).setIcon(QIcon())
 
-    def set_zoom(self, zoom):
-        zoom = round(max(.1, min(5., zoom)), 2)
-        if zoom == self.zoom: return
-        ratio = zoom/self.zoom; sb = self.scroll.verticalScrollBar(); position = sb.value()*ratio
-        self.zoom = zoom; self.zoom_box.blockSignals(True); self.zoom_box.setValue(round(zoom*100)); self.zoom_box.blockSignals(False)
-        self.canvas.arrange(); sb.setValue(round(position))
+    def set_zoom(self, zoom, anchor=None, keep_fit=False):
+        zoom=max(.1,min(5.,zoom))
+        if not keep_fit: self.fit_mode=None
+        if abs(zoom-self.zoom)<.0001: return
+        viewport=self.scroll.viewport()
+        anchor=anchor or viewport.rect().center()
+        canvas_point=self.canvas.mapFrom(viewport,anchor)
+        # Store a point in PDF coordinates, independent of gutters and alignment.
+        nearest=next((entry for entry in self.canvas.rects if entry[1].contains(canvas_point)),None) or min(self.canvas.rects,key=lambda entry:abs(entry[1].center().y()-canvas_point.y()),default=None)
+        if nearest:
+            index,rect=nearest
+            px=(canvas_point.x()-rect.x())/self.zoom; py=(canvas_point.y()-rect.y())/self.zoom
+        self.suppress_scroll=True
+        self.zoom=zoom; self.zoom_box.blockSignals(True); self.zoom_box.setValue(round(zoom*100)); self.zoom_box.blockSignals(False)
+        self.canvas.arrange()
+        if nearest:
+            rect=next((r for i,r in self.canvas.rects if i==index),None)
+            if rect:
+                self.scroll.horizontalScrollBar().setValue(round(rect.x()+px*zoom-anchor.x()))
+                self.scroll.verticalScrollBar().setValue(round(rect.y()+py*zoom-anchor.y()))
+        self.suppress_scroll=False; self.scrolled()
 
     def change_mode(self, *_):
-        self.canvas.arrange(); self.go(self.current)
+        self.suppress_scroll=True; self.canvas.arrange(); self.suppress_scroll=False
+        self.go(self.current)
+        if self.fit_mode: self.fit(self.fit_mode)
 
     def go(self, index):
         if not self.doc or index<0: return
-        self.current = min(index, len(self.doc.sizes)-1)
+        self.suppress_scroll=True
+        self.current=min(index,len(self.doc.sizes)-1)
         if self.mode.currentIndex() in (0,2): self.canvas.arrange()
         else:
-            rect = next((r for i,r in self.canvas.rects if i==self.current), None)
-            if rect: self.scroll.verticalScrollBar().setValue(round(rect.top()-24))
+            rect=next((r for i,r in self.canvas.rects if i==self.current),None)
+            if rect: self.scroll.verticalScrollBar().setValue(round(rect.top()))
+        self.suppress_scroll=False
         self.sync_page()
+        if self.fit_mode and self.mode.currentIndex() in (0,2): self.fit(self.fit_mode)
 
     def sync_page(self):
         self.page.blockSignals(True); self.page.setValue(self.current+1); self.page.blockSignals(False)
@@ -305,8 +521,8 @@ class Window(QMainWindow):
         self.queue_thumbs()
 
     def scrolled(self, *_):
-        if self.doc and self.mode.currentIndex() in (1,3):
-            y = self.scroll.verticalScrollBar().value()+30
+        if self.doc and not self.suppress_scroll and self.mode.currentIndex() in (1,3):
+            y = self.scroll.verticalScrollBar().value()+2
             for i, rect in self.canvas.rects:
                 if rect.bottom()>=y:
                     if self.current!=i: self.current=i; self.sync_page()
@@ -332,13 +548,28 @@ class Window(QMainWindow):
             if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile()); break
 
     def closeEvent(self, event):
+        self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
+        QApplication.instance().removeEventFilter(self)
         if self.doc: self.doc.close()
         super().closeEvent(event)
 
 
 if __name__ == '__main__':
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv); app.setApplicationName('PDFeather'); app.setApplicationVersion('1.0.0'); app.setStyle('Fusion')
-    app.setStyleSheet('QToolBar { spacing:6px; padding:8px; background:#fff; border-bottom:1px solid #ddd; } QPushButton { padding:6px 10px; } QComboBox,QSpinBox { padding:5px; } QListWidget { background:#f7f8fa; border:0; }')
-    window = Window(); window.show()
-    if len(sys.argv)>1: window.open(sys.argv[1])
+    app.setStyleSheet(STYLE)
+    window=Window(); window.show()
+    if len(sys.argv)>1 and sys.argv[1]=='--smoke-test':
+        window.open(sys.argv[2])
+        dialog=PrintWindow(window.doc,window); dialog.show()
+        result_path=Path(sys.argv[3]); deadline=time.monotonic()+40
+        check=QTimer(); check.setInterval(100)
+        def smoke_check():
+            pix=dialog.preview_label.pixmap()
+            if pix and not pix.isNull():
+                result_path.write_text('ok'); check.stop(); dialog.close(); window.close(); app.exit(0)
+            elif time.monotonic()>deadline:
+                result_path.write_text('failed: '+dialog.error.text()); check.stop(); dialog.close(); window.close(); app.exit(1)
+        check.timeout.connect(smoke_check); check.start()
+    elif len(sys.argv)>1: window.open(sys.argv[1])
     sys.exit(app.exec())

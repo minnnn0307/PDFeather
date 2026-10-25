@@ -44,13 +44,48 @@ class Tests(unittest.TestCase):
                 window.mode.setCurrentIndex(mode); window.go(0)
                 self.assertEqual(len(window.canvas.rects),count)
             window.set_zoom(1.5); self.assertEqual(window.zoom,1.5)
-            dialog = PrintWindow(window.doc,window)
-            dialog.timer.stop()
-            output = str(Path(temp)/'output.pdf')
-            dialog.printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat); dialog.printer.setOutputFileName(output)
-            dialog.nup.setCurrentText('2'); dialog.pages.setText('1-5'); dialog.configure(); dialog.paint(dialog.printer)
-            result = Document(output)
+            from printing import make_printer, paint_document
+            settings=dict(path=source,selected=list(range(5)),nup=2,percent=None,paper='A4',landscape=False,duplex=0,copies=1,device='',sheet=0)
+            output=str(Path(temp)/'output.pdf')
+            output_printer=make_printer(settings,output)
+            paint_document(window.doc,output_printer,settings)
+            result=Document(output)
             self.assertEqual(len(result.sizes),3); result.close()
+            window.show(); app.processEvents()
+            window.mode.setCurrentIndex(1); window.set_zoom(2.0)
+            window.scroll.horizontalScrollBar().setValue(100)
+            window.scroll.verticalScrollBar().setValue(300)
+            from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
+            anchor=QPoint(250,220)
+            before=window.canvas.mapFrom(window.scroll.viewport(),anchor)
+            old_rect=window.canvas.rects[0][1]
+            pdf_point=((before.x()-old_rect.x())/window.zoom,(before.y()-old_rect.y())/window.zoom)
+            window.set_zoom(2.3,anchor)
+            after=window.canvas.mapFrom(window.scroll.viewport(),anchor); rect=window.canvas.rects[0][1]
+            self.assertAlmostEqual((after.x()-rect.x())/window.zoom,pdf_point[0],delta=1)
+            self.assertAlmostEqual((after.y()-rect.y())/window.zoom,pdf_point[1],delta=1)
+            window.mode.setCurrentIndex(0); window.go(0)
+            window.scroll.verticalScrollBar().setValue(window.scroll.verticalScrollBar().maximum())
+            from PySide6.QtGui import QWheelEvent
+            event=QWheelEvent(QPointF(100,100),QPointF(window.scroll.viewport().mapToGlobal(QPoint(100,100))),QPoint(),QPoint(0,-120),Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier,Qt.ScrollPhase.NoScrollPhase,False)
+            QApplication.sendEvent(window.scroll.viewport(),event)
+            self.assertEqual(window.current,1)
+            window.show_search(); window.search_input.setText('Page'); window.search_debounce.stop(); window.begin_search()
+            for _ in range(6): window.search_step()
+            self.assertEqual(len(window.matches),5)
+            window.next_match(1); self.assertEqual(window.match_index,1)
+            # The print dialog must return immediately and keep its event loop alive.
+            import time
+            started=time.monotonic(); dialog=PrintWindow(window.doc,window); dialog.show()
+            self.assertLess(time.monotonic()-started,3)
+            ticks=[]; heartbeat=QTimer(); heartbeat.setInterval(5); heartbeat.timeout.connect(lambda:ticks.append(1)); heartbeat.start()
+            deadline=time.monotonic()+20
+            while time.monotonic()<deadline:
+                app.processEvents(); time.sleep(.01)
+                if dialog.preview_label.pixmap() and not dialog.preview_label.pixmap().isNull(): break
+            heartbeat.stop()
+            self.assertGreater(len(ticks),3)
+            self.assertTrue(dialog.preview_label.pixmap() and not dialog.preview_label.pixmap().isNull(),dialog.error.text())
             dialog.close(); window.close()
 
 if __name__ == '__main__': unittest.main()

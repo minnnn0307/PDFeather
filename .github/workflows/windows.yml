@@ -38,6 +38,20 @@ jobs:
                           shutil.copy2(src, dst)
           '@ | python -
       - run: pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --version-file installer/version_info.txt --collect-all pypdfium2 --add-data "THIRD_PARTY;THIRD_PARTY" main.py
+      - name: Verify frozen application and asynchronous preview
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python scripts/smoke_fixture.py build/smoke.pdf
+          $fixture = (Resolve-Path build/smoke.pdf).Path
+          $result = Join-Path $PWD 'build/smoke-result.txt'
+          $process = Start-Process -FilePath dist/PDFeather/PDFeather.exe -ArgumentList @('--smoke-test', $fixture, $result) -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            Stop-Process -Id $process.Id -Force
+            throw 'Frozen preview smoke check timed out'
+          }
+          if (!(Test-Path $result) -or (Get-Content $result -Raw) -ne 'ok') { throw 'Frozen preview smoke check failed' }
       - name: Installer
         shell: pwsh
         run: |
