@@ -3,13 +3,14 @@ import sys
 from pathlib import Path
 
 
-def create_pdf(path, count=4):
+def create_pdf(path, count=4, background=False):
     objects=[b'', b'']
     pages=[]
     for index in range(count):
         page_id=len(objects)+1; content_id=page_id+1
         pages.append(page_id)
-        content=f'BT /F1 24 Tf 72 740 Td (Page {index+1} PDFeather print preview test) Tj ET'.encode('ascii')
+        prefix='0.2 0.2 0.2 rg 0 0 595 842 re f 1 1 1 rg ' if background else ''
+        content=(prefix+f'BT /F1 24 Tf 72 740 Td (Page {index+1} PDFeather print preview test) Tj ET').encode('ascii')
         objects.append(f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents {content_id} 0 R >>'.encode('ascii'))
         objects.append(b'<< /Length '+str(len(content)).encode()+b' >>\nstream\n'+content+b'\nendstream')
     objects[0]=b'<< /Type /Catalog /Pages 2 0 R >>'

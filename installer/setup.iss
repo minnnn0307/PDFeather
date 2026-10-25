@@ -1,6 +1,6 @@
 #define AppVersion GetEnv('APP_VERSION')
 #if AppVersion == ''
-  #define AppVersion '1.0.0'
+  #define AppVersion '1.1.0'
 #endif
 [Setup]
 AppId={{D1E19B3A-782F-4B6F-92EE-57D873E15EDB}
@@ -15,6 +15,7 @@ Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile=..\assets\PDFeather.ico
 UninstallDisplayIcon={app}\PDFeather.exe
 [Files]
 Source: "..\dist\PDFeather\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

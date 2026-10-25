@@ -1,6 +1,14 @@
-# PDFeather
+# PDFeather 1.1.0
 
 오프라인 Windows 10/11 x64 PDF 리더. Python을 설치하지 않은 PC에서도 설치본 실행이 가능합니다. 브라우저 엔진, 서버, 로그인, 원격 API, 자동 업데이트가 없습니다. 빌드할 때만 인터넷이 필요합니다.
+
+## 1.1.0 변경
+
+- 인쇄 여백: 용지 가장자리 기준 상하좌우 0~100 mm, 모아찍기 간격, 미리보기 안내선. 잘못된 여백 조합은 인쇄 전에 안내합니다.
+- 설정 탭: 라이트 / 다크 모드, 기본 보기·배율, 썸네일, 휠 확대 단계, 페이지 끝 넘김, 창 위치·크기 기억, 인쇄 기본값. 변경 사항은 자동 저장합니다.
+- 단일 / 2페이지 보기에서 작은 문서를 가로·세로 중앙에 배치합니다.
+- 보기 모드 선택은 하단 오른쪽 배율 왼쪽에 있습니다.
+- PDF 문서 + 깃펜 로고를 Windows EXE / 설치 프로그램 / 제목 표시줄에 통일했습니다. 다크 모드용 색상을 별도로 제공합니다.
 
 ## 기능
 
@@ -45,8 +53,8 @@ git remote add origin https://github.com/minnnn0307/PDFeather.git
 git push -u origin main
 ```
 
-2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.0.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.0.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
-3. 버전 배포: `git tag v1.0.0` 후 `git push origin v1.0.0`을 실행하면 설치 EXE가 GitHub Release에 첨부됩니다. 저장소의 Actions 실행/쓰기 권한 정책이 허용되어야 합니다.
+2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.1.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.1.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
+3. 버전 배포: `git tag v1.1.0` 후 `git push origin v1.1.0`을 실행하면 설치 EXE가 GitHub Release에 첨부됩니다. 저장소의 Actions 실행/쓰기 권한 정책이 허용되어야 합니다.
 
 서명 인증서는 포함되어 있지 않습니다. 서명 없는 설치 EXE에는 Windows 보안 경고가 표시될 수 있습니다. GitHub 저장소: https://github.com/minnnn0307/PDFeather
 
@@ -57,7 +65,7 @@ Python 3.12 x64와 Inno Setup 6 설치 후:
 ```powershell
 pip install -r requirements-build.txt
 # 배포본에는 THIRD_PARTY_NOTICES.md와 각 의존성의 라이선스를 함께 포함하세요.
-pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --version-file installer/version_info.txt --collect-all pypdfium2 main.py
+pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --icon assets/PDFeather.ico --version-file installer/version_info.txt --collect-all pypdfium2 main.py
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/setup.iss
 ```
 
@@ -65,6 +73,8 @@ pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --version-f
 
 ## 검증 상태와 제한
 
-자동 검사: 페이지 범위 오류, N-up 배치 계산, 실제 5페이지 PDF 열기/렌더링, 네 가지 보기 모드, 포인터 기준 확대 좌표 보존, 페이지 끝 휠 넘김, 텍스트 검색 결과, 2-up 출력 PDF의 3장 생성, 인쇄 미리보기 중 이벤트 루프 응답. Linux와 GitHub Actions의 Windows offscreen Qt 환경에서 수행합니다. 빌드된 Windows EXE 자체에서도 별도 프로세스 미리보기가 생성되는지 검사합니다. Windows 설치/제거, 프린터 드라이버별 양면·매수·용지 적용, 큰 문서 성능은 실제 Windows 장치에서 추가 확인해야 합니다. 양면 기능은 드라이버와 프린터 지원에 따릅니다. 미리보기는 레이아웃을 보여주며 프린터의 물리적 양면 동작은 재현하지 않습니다.
+자동 검사: 페이지 범위 오류, N-up 배치 계산, 실제 5페이지 PDF 열기/렌더링, 네 가지 보기 모드, 포인터 기준 확대 좌표 보존, 페이지 끝 휠 넘김, 텍스트 검색 결과, 2-up 출력 PDF의 3장 생성, 인쇄 미리보기 중 이벤트 루프 응답, 출력 PDF의 실제 여백, 테마 전환과 설정 영속성, 단일·2페이지 중앙 정렬. Linux와 GitHub Actions의 Windows offscreen Qt 환경에서 수행합니다. 빌드된 Windows EXE 자체에서도 별도 프로세스 미리보기가 생성되는지 검사합니다. Windows 설치/제거, 프린터 드라이버별 양면·매수·용지 적용, 큰 문서 성능은 실제 Windows 장치에서 추가 확인해야 합니다. 양면 기능은 드라이버와 프린터 지원에 따릅니다. 미리보기는 레이아웃을 보여주며 프린터의 물리적 양면 동작은 재현하지 않습니다.
 
 검색은 PDF 텍스트 레이어를 대상으로 하며 OCR은 포함하지 않습니다. 검색 결과는 최대 10,000개입니다. 프린터 조회가 오래 걸리면 제한 시간 후 미리보기로 이동하며 다시 조회할 수 있습니다. 인쇄 중단 전에 Windows 대기열로 전송된 작업은 대기열에서 취소해야 합니다.
+
+설정은 Windows 사용자별로 저장됩니다. 테마는 앱 UI에 적용하며 PDF 문서의 원래 색은 유지합니다. 인쇄 미리보기의 점선은 출력 영역 안내이며 출력물에는 포함되지 않습니다. 여백 0 mm는 프린터의 무테 인쇄 지원이 필요하고, 하드웨어 인쇄 불가 영역 안의 내용은 잘릴 수 있습니다.

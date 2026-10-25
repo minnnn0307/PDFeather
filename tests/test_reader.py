@@ -6,7 +6,9 @@ import unittest
 from contextlib import ExitStack
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from layout import parse_pages, placement, grid
+from layout import parse_pages, placement, grid, print_cells
+from preferences import Preferences
+from PySide6.QtCore import QSettings
 from scripts.smoke_fixture import create_pdf
 from PySide6.QtWidgets import QApplication
 from PySide6.QtPrintSupport import QPrinter
@@ -28,11 +30,64 @@ class Tests(unittest.TestCase):
         for n in (1,2,4,6,9,16):
             cols, rows = grid(n); self.assertEqual(cols*rows,n)
 
+    def test_print_margins(self):
+        cells=print_cells((210,297),(10,20,30,40),4,2,25.4)
+        self.assertEqual(cells[0],(10,20,84,117.5))
+        self.assertEqual(cells[3],(96,139.5,84,117.5))
+        self.assertEqual(print_cells((210,297),(0,0,0,0),1,0,25.4),[(0,0,210,297)])
+        for margins,gap in [((120,0,120,0),0),((0,150,0,150),0),((0,0,0,0),300)]:
+            with self.assertRaises(ValueError): print_cells((210,297),margins,4,gap,72)
+        # Verify white physical margins around a PDF filled all the way to its edges.
+        with tempfile.TemporaryDirectory() as temp:
+            from scripts.smoke_fixture import create_pdf
+            source=str(Path(temp)/'solid.pdf')
+            create_pdf(source,1,background=True)
+            from printing import make_printer,paint_document
+            doc=Document(source)
+            settings=dict(path=source,selected=[0],nup=1,percent=None,paper='A4',landscape=False,duplex=0,copies=1,device='',sheet=0,margins=[20,20,20,20],gap=0)
+            output=str(Path(temp)/'margins.pdf'); printer=make_printer(settings,output)
+            paint_document(doc,printer,settings); doc.close()
+            output_doc=Document(output); image=output_doc.image(0,1,cached=False)
+            self.assertGreater(image.pixelColor(15,image.height()//2).red(),245)
+            self.assertLess(image.pixelColor(image.width()//2,image.height()//2).red(),100)
+            self.assertGreater(image.pixelColor(image.width()-15,image.height()//2).red(),245)
+            output_doc.close()
+
+    def test_preferences_and_centering(self):
+        with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
+            source=str(Path(temp)/'input.pdf'); create_pdf(source,3)
+            settings_path=str(Path(temp)/'preferences.ini')
+            prefs=Preferences(QSettings(settings_path,QSettings.Format.IniFormat))
+            window=Window(prefs); cleanup.callback(window.close); window.open(source); window.show(); app.processEvents()
+            panel=window.settings_panel
+            panel.controls['theme'].setCurrentIndex(panel.controls['theme'].findData('light'))
+            self.assertEqual(window.theme_name,'light')
+            self.assertEqual(Preferences(QSettings(settings_path,QSettings.Format.IniFormat)).get('theme'),'light')
+            panel.controls['default_mode'].setCurrentIndex(0)
+            window.set_zoom(.4)
+            for _ in range(3): app.processEvents()
+            viewport=window.scroll.viewport().rect(); rect=window.canvas.rects[0][1]
+            self.assertAlmostEqual(rect.center().x(),viewport.width()/2,delta=1)
+            self.assertAlmostEqual(rect.center().y(),viewport.height()/2,delta=1)
+            window.mode.setCurrentIndex(2); window.set_zoom(.3)
+            for _ in range(3): app.processEvents()
+            rect=window.canvas.rects[0][1].united(window.canvas.rects[1][1])
+            self.assertAlmostEqual(rect.center().x(),window.scroll.viewport().width()/2,delta=1)
+            self.assertAlmostEqual(rect.center().y(),window.scroll.viewport().height()/2,delta=1)
+            window.mode.setCurrentIndex(1); self.assertEqual(window.canvas.rects[0][1].top(),0)
+            panel.controls['margin_left'].setValue(23.5)
+            self.assertEqual(Preferences(QSettings(settings_path,QSettings.Format.IniFormat)).get('margin_left'),23.5)
+            panel.controls['theme'].setCurrentIndex(panel.controls['theme'].findData('dark'))
+            self.assertEqual(window.theme_name,'dark')
+            from branding import application_icon
+            self.assertFalse(application_icon().isNull())
+            window.close()
+
     def test_document_modes_and_print(self):
         with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
             source = str(Path(temp)/'input.pdf')
             create_pdf(source,5)
-            window = Window(); cleanup.callback(window.close); window.open(source)
+            window = Window(Preferences(QSettings(str(Path(temp)/'preferences.ini'),QSettings.Format.IniFormat))); cleanup.callback(window.close); window.open(source)
             self.assertEqual(len(window.doc.sizes), 5)
             image = window.doc.image(0,1)
             self.assertFalse(image.isNull())
