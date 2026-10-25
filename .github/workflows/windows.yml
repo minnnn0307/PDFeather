@@ -1,0 +1,64 @@
+name: Windows installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements-build.txt
+      - run: python -m unittest discover -s tests -v
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - name: Collect dependency licenses
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force THIRD_PARTY | Out-Null
+          Copy-Item THIRD_PARTY_NOTICES.md THIRD_PARTY/
+          @'
+          import importlib.metadata as m, pathlib, shutil
+          for name in ('PySide6-Essentials', 'shiboken6', 'pypdfium2'):
+              dist = m.distribution(name)
+              for f in dist.files or []:
+                  if any(k in str(f).lower() for k in ('license', 'notice', 'copying')):
+                      src = pathlib.Path(dist.locate_file(f))
+                      if src.is_file():
+                          dst = pathlib.Path('THIRD_PARTY') / name / str(f).replace('..', '_')
+                          dst.parent.mkdir(parents=True, exist_ok=True)
+                          shutil.copy2(src, dst)
+          '@ | python -
+      - run: pyinstaller --noconfirm --clean --windowed --onedir --name FeatherPDF --collect-all pypdfium2 --add-data "THIRD_PARTY;THIRD_PARTY" main.py
+      - name: Installer
+        shell: pwsh
+        run: |
+          $env:APP_VERSION = '0.1.0'
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v') }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/setup.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FeatherPDF-Windows-x64
+          path: |
+            release/*.exe
+            dist/FeatherPDF/
+          if-no-files-found: error
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Release publishing uses job permissions below.
+    permissions:
+      contents: write

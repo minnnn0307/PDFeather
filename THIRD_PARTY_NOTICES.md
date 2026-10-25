@@ -1,0 +1,3 @@
+# Third-party components
+
+Feather PDF uses dynamically loaded PySide6 Essentials / Qt (LGPLv3 / GPLv3 / commercial options), Shiboken6, pypdfium2 (Apache-2.0 / BSD-3-Clause), and PDFium (BSD-style and bundled third-party licenses). The Windows workflow copies installed package license / notice files into THIRD_PARTY in the application directory. Do not remove them when redistributing. Qt libraries remain separate in the onedir distribution to permit replacement. Qt source and license information: https://code.qt.io/ and https://www.qt.io/licensing/open-source-lgpl-obligations. pypdfium2: https://github.com/pypdfium2-team/pypdfium2. Review bundled license obligations for your intended distribution.

@@ -1,0 +1,2 @@
+PySide6-Essentials==6.8.3
+pypdfium2==5.14.0
