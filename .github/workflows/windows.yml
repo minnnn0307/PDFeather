@@ -37,20 +37,20 @@ jobs:
                           dst.parent.mkdir(parents=True, exist_ok=True)
                           shutil.copy2(src, dst)
           '@ | python -
-      - run: pyinstaller --noconfirm --clean --windowed --onedir --name FeatherPDF --collect-all pypdfium2 --add-data "THIRD_PARTY;THIRD_PARTY" main.py
+      - run: pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --version-file installer/version_info.txt --collect-all pypdfium2 --add-data "THIRD_PARTY;THIRD_PARTY" main.py
       - name: Installer
         shell: pwsh
         run: |
-          $env:APP_VERSION = '0.1.0'
+          $env:APP_VERSION = '1.0.0'
           if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v') }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/setup.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
-          name: FeatherPDF-Windows-x64
+          name: PDFeather-1.0.0-Windows-x64
           path: |
             release/*.exe
-            dist/FeatherPDF/
+            dist/PDFeather/
           if-no-files-found: error
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')

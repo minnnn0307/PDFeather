@@ -205,7 +205,7 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.doc = None; self.current = 0; self.zoom = 1.0
-        self.setWindowTitle('Feather PDF'); self.resize(1200, 850); self.setAcceptDrops(True)
+        self.setWindowTitle('PDFeather 1.0.0'); self.resize(1200, 850); self.setAcceptDrops(True)
         bar = QToolBar(); bar.setMovable(False); self.addToolBar(bar)
         def button(text, callback):
             b = QPushButton(text); b.clicked.connect(callback); bar.addWidget(b); return b
@@ -262,7 +262,7 @@ class Window(QMainWindow):
             item = QListWidgetItem(f'{i+1} 페이지'); item.setSizeHint(QSize(130, 175)); self.thumbs.addItem(item)
         self.thumbs.blockSignals(False)
         self.page.setMaximum(len(new.sizes)); self.total.setText(f' / {len(new.sizes)}  ')
-        self.setWindowTitle(f'{Path(path).name} — Feather PDF'); self.canvas.arrange(); self.go(0); self.queue_thumbs()
+        self.setWindowTitle(f'{Path(path).name} — PDFeather 1.0.0'); self.canvas.arrange(); self.go(0); self.queue_thumbs()
 
     def queue_thumbs(self, *_): self.thumb_timer.start(30)
 
@@ -337,7 +337,7 @@ class Window(QMainWindow):
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv); app.setApplicationName('Feather PDF'); app.setStyle('Fusion')
+    app = QApplication(sys.argv); app.setApplicationName('PDFeather'); app.setApplicationVersion('1.0.0'); app.setStyle('Fusion')
     app.setStyleSheet('QToolBar { spacing:6px; padding:8px; background:#fff; border-bottom:1px solid #ddd; } QPushButton { padding:6px 10px; } QComboBox,QSpinBox { padding:5px; } QListWidget { background:#f7f8fa; border:0; }')
     window = Window(); window.show()
     if len(sys.argv)>1: window.open(sys.argv[1])

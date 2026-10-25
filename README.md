@@ -39,8 +39,8 @@ git remote add origin https://github.com/minnnn0307/PDFeather.git
 git push -u origin main
 ```
 
-2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → FeatherPDF-Windows-x64**에서 압축 파일을 내려받습니다. `release/FeatherPDF-0.1.0-Setup.exe`가 설치 프로그램입니다. `dist/FeatherPDF` 폴더 전체는 무설치 실행용입니다.
-3. 버전 배포: `git tag v0.1.0` 후 `git push origin v0.1.0`을 실행하면 설치 EXE가 GitHub Release에 첨부됩니다. 저장소의 Actions 실행/쓰기 권한 정책이 허용되어야 합니다.
+2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.0.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.0.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
+3. 버전 배포: `git tag v1.0.0` 후 `git push origin v1.0.0`을 실행하면 설치 EXE가 GitHub Release에 첨부됩니다. 저장소의 Actions 실행/쓰기 권한 정책이 허용되어야 합니다.
 
 서명 인증서는 포함되어 있지 않습니다. 서명 없는 설치 EXE에는 Windows 보안 경고가 표시될 수 있습니다. GitHub 저장소: https://github.com/minnnn0307/PDFeather
 
@@ -51,7 +51,7 @@ Python 3.12 x64와 Inno Setup 6 설치 후:
 ```powershell
 pip install -r requirements-build.txt
 # 배포본에는 THIRD_PARTY_NOTICES.md와 각 의존성의 라이선스를 함께 포함하세요.
-pyinstaller --noconfirm --clean --windowed --onedir --name FeatherPDF --collect-all pypdfium2 main.py
+pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --version-file installer/version_info.txt --collect-all pypdfium2 main.py
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/setup.iss
 ```
 
