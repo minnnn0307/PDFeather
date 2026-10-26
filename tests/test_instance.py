@@ -10,7 +10,7 @@ class InstanceTests(unittest.TestCase):
     def test_packet_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             path=str(Path(temp)/'한글 문서.PDF')
-            self.assertEqual(json.loads(encode_paths([path]))['paths'],[path])
+            self.assertEqual(json.loads(encode_paths([path]))['paths'],[str(Path(path).resolve())])
         for paths in [['relative.pdf'],['https://host/file.pdf'],['/tmp/not.exe'],['/tmp/no.pdf\0'],{},[None]]:
             with self.assertRaises(ValueError): validate_paths(paths)
 
