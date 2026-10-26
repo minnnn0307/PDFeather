@@ -20,6 +20,30 @@ app = QApplication.instance() or QApplication([])
 app.setProperty('offlineTests',True)
 
 class Tests(unittest.TestCase):
+    def test_single_page_scroll_center_and_1000_percent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'single.pdf'; create_pdf(path,1)
+            prefs=Preferences(QSettings(str(Path(temp)/'settings.ini'),QSettings.Format.IniFormat))
+            window=Window(prefs); window.show()
+            try:
+                window.open(str(path))
+                for mode in (1,3):
+                    window.mode.setCurrentIndex(mode); window.set_zoom(.3)
+                    for _ in range(8): app.processEvents()
+                    rect=window.canvas.rects[0][1]
+                    viewport=window.scroll.viewport()
+                    self.assertAlmostEqual(rect.center().x(),viewport.width()/2,delta=1)
+                    self.assertAlmostEqual(rect.center().y(),viewport.height()/2,delta=1)
+                window.zoom_box.setValue(1000)
+                for _ in range(8): app.processEvents()
+                self.assertEqual(window.zoom,10.)
+                window.close_current_tab(); window.open(str(path))
+                for _ in range(8): app.processEvents()
+                self.assertEqual(window.zoom,10.)
+                window.set_zoom(12.)
+                self.assertEqual(window.zoom,10.)
+            finally: window.close()
+
     def test_ranges(self):
         self.assertEqual(parse_pages('1-3,5,2', 5), [0,1,2,4])
         self.assertEqual(parse_pages('', 2), [0,1])
@@ -50,14 +74,14 @@ class Tests(unittest.TestCase):
                 painter.end()
                 actual_rgba=stitched.convertToFormat(QImage.Format.Format_RGBA8888); reference_rgba=reference.convertToFormat(QImage.Format.Format_RGBA8888)
                 self.assertTrue(actual_rgba==reference_rgba,'Tiled rendering differs from the full-resolution reference')
-                # At 500% and 2x DPR a full page would exceed 50 MP; only visible tiles are allocated.
-                page_rect=QRectF(0,0,2975,4210); visible=QRectF(500,300,900,650)
+                # At 1000% and 2x DPR a full page would exceed 200 MP; only visible tiles are allocated.
+                page_rect=QRectF(0,0,5950,8420); visible=QRectF(500,300,900,650)
                 tiles=list(visible_tiles(page_rect,visible,2))
-                self.assertTrue(tiles); self.assertEqual(tiles[0][0][:2],(5950,8420))
+                self.assertTrue(tiles); self.assertEqual(tiles[0][0][:2],(11900,16840))
                 pixels=0
                 for tile,_ in tiles:
                     image=doc.tile(0,*tile); pixels+=image.width()*image.height()
-                self.assertLess(pixels,5950*8420/4)
+                self.assertLess(pixels,11900*16840/4)
                 self.assertLessEqual(doc.cache_bytes,64*1024*1024)
             finally: doc.close()
 

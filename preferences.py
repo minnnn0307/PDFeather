@@ -55,7 +55,7 @@ class Preferences:
             data=json.loads(self.storage.value(self.document_key(state.doc.path),'')); stat=Path(state.doc.path).stat()
             zoom=float(data['zoom']); mode=int(data['mode']); current=int(data['current'])
             if (data['size'],data['mtime'])!=(stat.st_size,stat.st_mtime_ns): return
-            if not math.isfinite(zoom) or not .1<=zoom<=5 or not 0<=mode<=3 or not 0<=current<len(state.doc.sizes): return
+            if not math.isfinite(zoom) or not .1<=zoom<=10 or not 0<=mode<=3 or not 0<=current<len(state.doc.sizes): return
             x,y=int(data['x']),int(data['y'])
             if not 0<=x<=2147483647 or not 0<=y<=2147483647: return
             state.current=current; state.zoom=zoom; state.mode=mode; state.fit_mode=None

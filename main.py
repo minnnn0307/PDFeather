@@ -133,7 +133,7 @@ class Canvas(CanvasInteraction,QWidget):
         width=max([sum(v[1] for v in row)+(len(row)-1) for row in rows]+[w.scroll.viewport().width()])
         content_height=sum(max(v[2] for v in row) for row in rows)+(len(rows) if continuous else 0)
         canvas_height=max(w.scroll.viewport().height(),math.ceil(content_height))
-        y=0. if continuous else max(0.,(canvas_height-content_height)/2)
+        y=0. if continuous and len(w.doc.sizes)>1 else max(0.,(canvas_height-content_height)/2)
         for row in rows:
             x=(width-sum(v[1] for v in row)-(len(row)-1))/2
             for i,pw,ph in row:
@@ -393,7 +393,7 @@ class Window(QMainWindow):
         self.total=QLabel('/ 0'); nav.addWidget(self.total); nav.addWidget(tool('next','다음 페이지 · PageDown',lambda:self.turn(1)))
         bottom.addLayout(nav)
         right=QHBoxLayout(); right.setSpacing(2); right.addStretch(); right.addWidget(self.mode); right.addSpacing(8); right.addWidget(tool('minus','축소 · Ctrl+−',lambda:self.set_zoom(self.zoom/1.15)))
-        self.zoom_box=QSpinBox(); self.zoom_box.setRange(10,500); self.zoom_box.setValue(100); self.zoom_box.setSuffix('%'); self.zoom_box.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons); self.zoom_box.setAlignment(Qt.AlignmentFlag.AlignCenter); self.zoom_box.setFixedWidth(66); self.zoom_box.valueChanged.connect(lambda v:self.set_zoom(v/100)); right.addWidget(self.zoom_box)
+        self.zoom_box=QSpinBox(); self.zoom_box.setRange(10,1000); self.zoom_box.setValue(100); self.zoom_box.setSuffix('%'); self.zoom_box.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons); self.zoom_box.setAlignment(Qt.AlignmentFlag.AlignCenter); self.zoom_box.setFixedWidth(66); self.zoom_box.valueChanged.connect(lambda v:self.set_zoom(v/100)); right.addWidget(self.zoom_box)
         right.addWidget(tool('plus','확대 · Ctrl++',lambda:self.set_zoom(self.zoom*1.15))); right.addSpacing(6); right.addWidget(tool('fit','쪽 맞추기 · Ctrl+0',lambda:self.fit('page'))); right.addWidget(tool('width','폭 맞추기 · Ctrl+1',lambda:self.fit('width'))); right.addWidget(QSizeGrip(self))
         rw=QWidget(); rw.setMinimumWidth(360); rw.setLayout(right); right.setContentsMargins(0,0,0,0); bottom.addWidget(rw,1)
         root.addWidget(footer)
@@ -797,7 +797,7 @@ class Window(QMainWindow):
             if abs(i-max(0,top))>30: self.thumbs.item(i).setIcon(QIcon())
 
     def set_zoom(self, zoom, anchor=None, keep_fit=False):
-        zoom=max(.1,min(5.,zoom))
+        zoom=max(.1,min(10.,zoom))
         if not keep_fit: self.fit_mode=None
         if self.canvas.dragging: self.canvas.cancel_drag()
         if abs(zoom-self.zoom)<.0001: self.canvas.arrange(); return

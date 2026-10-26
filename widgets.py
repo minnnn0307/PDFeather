@@ -51,12 +51,20 @@ def icon(name):
         rect(4,5,16,14); line(8,3,8,7); line(2,9,6,9); line(18,15,22,15); line(16,17,16,21)
         if name=='multi': line(8,10,16,10); line(8,14,16,14)
     elif name=='settings':
-        gear=QPainterPath()
+        # A solid six-tooth silhouette keeps the teeth legible at toolbar size.
+        gear=QPainterPath(); gear.addEllipse(QRectF(5,5,14,14))
         for tooth in range(6):
-            for offset,radius in [(-30,7.2),(-15,7.2),(-15,9.5),(15,9.5),(15,7.2),(30,7.2)]:
-                angle=math.radians(tooth*60+offset); point=QPointF(12+math.cos(angle)*radius,12+math.sin(angle)*radius)
-                gear.moveTo(point) if tooth==0 and offset==-30 else gear.lineTo(point)
-        gear.closeSubpath(); p.drawPath(gear); p.drawEllipse(QRectF(8.7,8.7,6.6,6.6))
+            angle=math.radians(tooth*60)
+            points=[]
+            for radial,tangent in [(6,-2),(10,-2),(10,2),(6,2)]:
+                points.append(QPointF(12+math.cos(angle)*radial-math.sin(angle)*tangent,
+                                     12+math.sin(angle)*radial+math.cos(angle)*tangent))
+            tab=QPainterPath(); tab.moveTo(points[0])
+            for point in points[1:]: tab.lineTo(point)
+            tab.closeSubpath(); gear=gear.united(tab)
+        hole=QPainterPath(); hole.addEllipse(QRectF(8.8,8.8,6.4,6.4))
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(PALETTES[THEME]['text']))
+        p.drawPath(gear.subtracted(hole))
     elif name=='minus': line(6,12,18,12)
     elif name=='plus': line(6,12,18,12); line(12,6,12,18)
     elif name=='minimize': line(6,16,18,16)
