@@ -1,8 +1,9 @@
-from PySide6.QtCore import QSettings, Signal
+from PySide6.QtCore import QSettings, Signal, QLocale
+from app_meta import VERSION,publisher_for_language
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QComboBox,QCheckBox,QSpinBox,
     QDoubleSpinBox,QGroupBox,QLabel,QPushButton,QGridLayout,QHBoxLayout,QListWidget,QStackedWidget,QScrollArea)
 
-DEFAULTS=dict(render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,
+DEFAULTS=dict(auto_update=True,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,
     edge_flip=True,remember_geometry=True,print_paper='A4',print_duplex=0,
     margin_left=10.,margin_top=10.,margin_right=10.,margin_bottom=10.,print_gap=2.)
 
@@ -30,6 +31,8 @@ class Preferences:
 
 class SettingsPanel(QWidget):
     changed=Signal(str,object)
+    check_update_requested=Signal()
+    open_release_requested=Signal()
     def __init__(self,prefs,parent=None):
         super().__init__(parent); self.prefs=prefs; self.controls={}
         root=QHBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
@@ -49,7 +52,10 @@ class SettingsPanel(QWidget):
         self.combo(appearance,'테마','theme',[('다크 모드','dark'),('라이트 모드','light')])
         self.check(appearance,'왼쪽 썸네일 기본 표시','show_thumbnails')
         behavior=group(general,'시작 및 창')
-        self.check(behavior,'창 위치와 크기 기억','remember_geometry'); general.addStretch()
+        self.check(behavior,'창 위치와 크기 기억','remember_geometry')
+        updates=group(general,'업데이트')
+        self.check(updates,'새 버전 자동 확인 (하루 한 번)','auto_update')
+        notice=QLabel('업데이트 확인에만 GitHub에 연결합니다. 문서는 전송하지 않습니다.\n인터넷이 없으면 조용히 건너뛰며 PDF 열기·인쇄는 계속 사용할 수 있습니다.'); notice.setObjectName('mutedText'); notice.setWordWrap(True); updates.addRow(notice); general.addStretch()
         reading=page('문서 표시','화질과 문서 탐색 방식을 설정합니다.')
         quality=group(reading,'렌더링 품질')
         self.combo(quality,'표시 모드','render_mode',[('선명하게 · 고해상도 타일','tiles'),('메모리 절약 · 페이지 이미지','page')])
@@ -69,7 +75,11 @@ class SettingsPanel(QWidget):
         self.bind(spacing,'모아찍기 간격','print_gap',self.mm())
         hint=QLabel('0 mm 여백 출력은 프린터의 무테 인쇄 지원이 필요합니다.'); hint.setWordWrap(True); hint.setObjectName('mutedText'); printing_page.addWidget(hint); printing_page.addStretch()
         about=page('PDFeather','가볍고 간결한 오프라인 PDF 리더')
-        info=group(about,'프로그램 정보'); info.addRow('버전',QLabel('1.2.0')); info.addRow('네트워크',QLabel('문서 열기와 인쇄에 인터넷 연결이 필요하지 않습니다.'))
+        info=group(about,'프로그램 정보'); info.addRow('버전',QLabel(VERSION)); info.addRow('게시자',QLabel(publisher_for_language((QLocale.system().uiLanguages() or [QLocale.system().name()])[0]))); info.addRow('네트워크',QLabel('문서 열기와 인쇄에 인터넷 연결이 필요하지 않습니다.'))
+        updates=group(about,'업데이트 확인')
+        self.update_button=QPushButton('지금 확인'); self.update_button.clicked.connect(self.check_update_requested.emit); updates.addRow(self.update_button)
+        self.update_status=QLabel('새 버전 확인은 인터넷 연결이 필요합니다.'); self.update_status.setWordWrap(True); self.update_status.setObjectName('mutedText'); updates.addRow(self.update_status)
+        self.release_button=QPushButton('배포 페이지 열기'); self.release_button.clicked.connect(self.open_release_requested.emit); self.release_button.hide(); updates.addRow(self.release_button)
         reset=QPushButton('모든 설정을 기본값으로 복원'); reset.clicked.connect(self.reset); about.addWidget(reset); about.addStretch()
         self.categories.currentRowChanged.connect(self.stack.setCurrentIndex); self.categories.setCurrentRow(0)
 

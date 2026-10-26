@@ -8,8 +8,8 @@ import ctypes
 from collections import OrderedDict
 from pathlib import Path
 import pypdfium2 as pdfium
-from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QPoint, QPointF, QEvent
-from PySide6.QtGui import QImage, QPainter, QColor, QIcon, QPixmap, QKeySequence, QShortcut, QPageLayout, QPageSize
+from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QPoint, QPointF, QEvent, QUrl
+from PySide6.QtGui import QImage, QPainter, QColor, QIcon, QPixmap, QKeySequence, QShortcut, QPageLayout, QPageSize, QDesktopServices
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QScrollArea,
     QPushButton, QComboBox, QSpinBox, QLabel, QFileDialog, QMessageBox, QSplitter,
     QListWidget, QListWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -24,6 +24,8 @@ from selection import TextSelection
 from capture import CaptureCollection,snapshot
 from tabs import DocumentTab
 from interaction import CanvasInteraction
+from app_meta import NAME,VERSION
+from updates import UpdateChecker
 
 
 STYLE = stylesheet('dark')
@@ -330,9 +332,10 @@ class PrintWindow(QDialog):
 
 
 class Window(QMainWindow):
-    def __init__(self, preferences=None):
+    def __init__(self, preferences=None, enable_updates=True):
         super().__init__()
         self.prefs=preferences if preferences is not None else Preferences()
+        self.enable_update_checks=enable_updates and not bool(QApplication.instance().property('offlineTests')); self.update_info=None; self.update_manual=False
         self.theme_name=self.prefs.get('theme'); self.theme=PALETTES[self.theme_name]
         set_theme(self.theme_name)
         self.active_tab=None; self.restoring_tab=False; self.selection=None; self.selection_tool='text'; self.captures=CaptureCollection()
@@ -342,6 +345,10 @@ class Window(QMainWindow):
         self.setWindowTitle('PDFeather'); self.resize(1200,850); self.setMinimumSize(960,540); self.setAcceptDrops(True)
         shell=QWidget(); shell.setObjectName('shell'); root=QVBoxLayout(shell); root.setSpacing(0); root.setContentsMargins(0,0,0,0)
         self.titlebar=TitleBar(self); root.addWidget(self.titlebar)
+        self.update_bar=QWidget(); self.update_bar.setObjectName('captureBar'); update_row=QHBoxLayout(self.update_bar); update_row.setContentsMargins(12,6,12,6)
+        self.update_label=QLabel(); update_row.addWidget(self.update_label,1)
+        release=QPushButton('업데이트 보기'); release.clicked.connect(self.open_update_page); update_row.addWidget(release)
+        dismiss=QPushButton('닫기'); dismiss.clicked.connect(self.dismiss_update); update_row.addWidget(dismiss); self.update_bar.hide(); root.addWidget(self.update_bar)
         self.file_tabs=QTabBar(); self.file_tabs.setObjectName('documentTabs'); self.file_tabs.setDocumentMode(True); self.file_tabs.setExpanding(False); self.file_tabs.setMovable(True); self.file_tabs.setTabsClosable(True); self.file_tabs.setUsesScrollButtons(True); self.file_tabs.setElideMode(Qt.TextElideMode.ElideRight); self.file_tabs.hide()
         self.file_tabs.currentChanged.connect(self.activate_tab); self.file_tabs.tabCloseRequested.connect(self.close_tab); root.addWidget(self.file_tabs)
         toolbar=QWidget(); toolbar.setObjectName('toolbar'); bar=QHBoxLayout(toolbar); bar.setContentsMargins(10,7,12,7); bar.setSpacing(6)
@@ -403,6 +410,11 @@ class Window(QMainWindow):
         QApplication.instance().installEventFilter(self)
         self.canvas.arrange()
         self.apply_theme(self.theme_name)
+        self.update_checker=UpdateChecker(self); self.update_checker.completed.connect(self.on_update_checked); self.update_checker.failed.connect(self.on_update_failed)
+        self.settings_panel.check_update_requested.connect(lambda:self.check_updates(True)); self.settings_panel.open_release_requested.connect(self.open_update_page)
+        self.update_timer=QTimer(self); self.update_timer.setSingleShot(True); self.update_timer.setInterval(3000); self.update_timer.timeout.connect(lambda:self.check_updates(False))
+        self.update_daily_timer=QTimer(self); self.update_daily_timer.setInterval(3600000); self.update_daily_timer.timeout.connect(lambda:self.check_updates(False))
+        if self.enable_update_checks: self.update_timer.start(); self.update_daily_timer.start()
 
     def apply_theme(self,name):
         self.theme_name=name; self.theme=PALETTES[name]; set_theme(name)
@@ -480,11 +492,48 @@ class Window(QMainWindow):
         if self.selection_tool=='multi' and self.captures.items: self.copy_captures()
         else: self.copy_text()
 
+    def check_updates(self,manual=False):
+        if not self.enable_update_checks: return
+        if not manual:
+            if not self.prefs.get('auto_update'): return
+            try: last=int(self.prefs.storage.value('updates/last_attempt',0))
+            except (ValueError,TypeError): last=0
+            if 0<=time.time()-last<86400: return
+        if self.update_checker.busy: return
+        self.update_manual=manual
+        self.prefs.storage.setValue('updates/last_attempt',int(time.time())); self.prefs.storage.sync()
+        self.settings_panel.update_button.setEnabled(False); self.settings_panel.update_status.setText('업데이트 확인 중…')
+        self.update_checker.check()
+
+    def on_update_checked(self,info):
+        self.settings_panel.update_button.setEnabled(True)
+        if info is None:
+            self.settings_panel.update_status.setText('새로운 공개 업데이트가 없습니다.'); self.settings_panel.release_button.hide(); self.update_bar.hide(); return
+        self.update_info=info; self.settings_panel.release_button.show(); self.settings_panel.update_status.setText(f'새 버전 {info.version}을 사용할 수 있습니다.')
+        dismissed=self.prefs.storage.value('updates/dismissed_version','')
+        if self.update_manual or dismissed!=info.version:
+            self.update_label.setText(f'새 버전 {info.version}이 있습니다. (현재 {VERSION})'); self.update_bar.show()
+
+    def on_update_failed(self,message):
+        self.settings_panel.update_button.setEnabled(True); self.settings_panel.update_status.setText(message)
+        if self.update_manual: QMessageBox.information(self,'업데이트 확인',message)
+
+    def dismiss_update(self):
+        self.update_bar.hide()
+        if self.update_info:
+            self.prefs.storage.setValue('updates/dismissed_version',self.update_info.version); self.prefs.storage.sync()
+
+    def open_update_page(self):
+        if self.update_info: QDesktopServices.openUrl(QUrl(self.update_info.url))
+
     def show_settings(self):
         self.settings_dialog.show(); self.settings_dialog.raise_(); self.settings_dialog.activateWindow()
 
     def preference_changed(self,key,value):
         if key=='theme': self.apply_theme(value)
+        elif key=='auto_update' and hasattr(self,'update_checker'):
+            if value and self.enable_update_checks: self.update_timer.start()
+            elif not value and not self.update_manual: self.update_checker.cancel(); self.settings_panel.update_button.setEnabled(True)
         elif key=='render_mode':
             if self.doc: self.doc.cache.clear(); self.doc.cache_bytes=0
             self.canvas.update()
@@ -797,6 +846,7 @@ class Window(QMainWindow):
         if self.prefs.get('remember_geometry'): self.prefs.storage.setValue('window_geometry',self.saveGeometry()); self.prefs.storage.sync()
         self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
         QApplication.instance().removeEventFilter(self)
+        self.update_timer.stop(); self.update_daily_timer.stop(); self.update_checker.cancel()
         self.canvas.cancel_drag(); self.notice_timer.stop(); self.settings_dialog.close(); self.captures.close()
         for i in range(self.file_tabs.count()): self.file_tabs.tabData(i).doc.close()
         self.doc=None; self.selection=None; self.active_tab=None; self.restoring_tab=False
@@ -805,10 +855,10 @@ class Window(QMainWindow):
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
-    if sys.platform=='win32': ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('PDFeather.Reader')
-    app = QApplication(sys.argv); app.setApplicationName('PDFeather'); app.setApplicationVersion('1.2.0'); app.setStyle('Fusion')
+    if sys.platform=='win32': ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(NAME)
+    app = QApplication(sys.argv); app.setApplicationName(NAME); app.setApplicationVersion(VERSION); app.setStyle('Fusion')
     app.setStyleSheet(STYLE)
-    window=Window(); window.show()
+    window=Window(enable_updates='--smoke-test' not in sys.argv); window.show()
     if len(sys.argv)>1 and sys.argv[1]=='--smoke-test':
         window.open(sys.argv[2])
         dialog=PrintWindow(window.doc,window); dialog.show()
@@ -819,6 +869,8 @@ if __name__ == '__main__':
             if pix and not pix.isNull():
                 check.stop()
                 try:
+                    from PySide6.QtNetwork import QSslSocket
+                    assert QSslSocket.supportsSsl(), 'TLS support is unavailable'
                     # Exercise selection, composition, clipboard, and tab data in the frozen executable.
                     window.selection.begin((0,0)); window.selection.extend((0,3))
                     assert window.selection.text()=='Page'

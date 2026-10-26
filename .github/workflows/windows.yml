@@ -17,6 +17,15 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements-build.txt
+      - name: Generate application metadata
+        shell: pwsh
+        run: |
+          python scripts/build_metadata.py
+          python -c "from app_meta import VERSION; print('APP_VERSION='+VERSION)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = python -c "from app_meta import VERSION; print(VERSION)"
+            if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag must match app_meta.VERSION' }
+          }
       - run: python -m unittest discover -s tests -v
         env:
           QT_QPA_PLATFORM: offscreen
@@ -38,42 +47,64 @@ jobs:
                           shutil.copy2(src, dst)
           '@ | python -
       - run: pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --icon assets/PDFeather-1.2.0.ico --version-file installer/version_info.txt --collect-all pypdfium2 --add-data "THIRD_PARTY;THIRD_PARTY" main.py
-      - name: Verify frozen application and asynchronous preview
+      - name: Verify executable metadata and application features
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          if ((Get-Item dist/PDFeather/PDFeather.exe).VersionInfo.ProductVersion -ne '1.2.0') { throw 'Unexpected executable version' }
+          python scripts/verify_metadata.py dist/PDFeather/PDFeather.exe
           python scripts/smoke_fixture.py build/smoke.pdf
           $fixture = (Resolve-Path build/smoke.pdf).Path
           $result = Join-Path $PWD 'build/smoke-result.txt'
           $process = Start-Process -FilePath dist/PDFeather/PDFeather.exe -ArgumentList @('--smoke-test', $fixture, $result) -PassThru
           if (-not $process.WaitForExit(60000)) {
             Stop-Process -Id $process.Id -Force
-            throw 'Frozen preview smoke check timed out'
+            throw 'Frozen application smoke check timed out'
           }
-          if (!(Test-Path $result) -or (Get-Content $result -Raw) -ne 'ok') { throw 'Frozen preview smoke check failed' }
+          if (!(Test-Path $result) -or (Get-Content $result -Raw) -ne 'ok') { throw 'Frozen application smoke check failed' }
       - name: Installer
         shell: pwsh
         run: |
-          $env:APP_VERSION = '1.2.0'
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v') }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/setup.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify localized installed publisher
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path "release/PDFeather-$env:APP_VERSION-Setup.exe").Path
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{D1E19B3A-782F-4B6F-92EE-57D873E15EDB}_is1'
+          foreach ($language in @('korean','english')) {
+            $destination = Join-Path $env:RUNNER_TEMP "PDFeather-$language"
+            $installed = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',"/LANG=$language","/DIR=$destination") -PassThru -Wait
+            if ($installed.ExitCode -ne 0) { throw "Install failed: $language" }
+            try {
+              $properties = Get-ItemProperty $key
+              $expected = if ($language -eq 'korean') { '조민혁' } else { 'Minhyeok Cho' }
+              if ($properties.Publisher -ne $expected) { throw "Publisher mismatch: $language" }
+              if ($properties.DisplayName -ne 'PDFeather' -or $properties.DisplayVersion -ne $env:APP_VERSION) { throw 'Installed application identity mismatch' }
+            } finally {
+              $uninstall = Start-Process -FilePath (Join-Path $destination 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+              if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
-          name: PDFeather-1.2.0-Windows-x64
+          name: PDFeather-${{ env.APP_VERSION }}-Windows-x64
           path: |
             release/*.exe
             dist/PDFeather/
           if-no-files-found: error
-      - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish stable release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: PDFeather v${{ env.APP_VERSION }}
+          target_commitish: ${{ github.sha }}
+          body_path: RELEASE_NOTES.md
           files: release/*.exe
+          fail_on_unmatched_files: true
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Release publishing uses job permissions below.
     permissions:
       contents: write

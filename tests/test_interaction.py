@@ -14,6 +14,7 @@ from capture import CaptureCollection,snapshot
 from scripts.smoke_fixture import create_pdf
 
 app=QApplication.instance() or QApplication([])
+app.setProperty('offlineTests',True)
 
 def settle():
     for _ in range(5): app.processEvents()

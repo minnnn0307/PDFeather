@@ -1,6 +1,17 @@
 # PDFeather
 
-오프라인 Windows 10/11 x64 PDF 리더. Python을 설치하지 않은 PC에서도 설치본 실행이 가능합니다. 브라우저 엔진, 서버, 로그인, 원격 API, 자동 업데이트가 없습니다. 빌드할 때만 인터넷이 필요합니다.
+오프라인 Windows 10/11 x64 PDF 리더. Python을 설치하지 않은 PC에서도 설치본 실행이 가능합니다. 문서 열기·표시·복사·캡처·인쇄는 인터넷 없이 동작합니다. 업데이트 확인을 켜면 GitHub Releases의 공개 버전 정보만 조회하며, 설치 파일을 자동으로 내려받거나 실행하지 않습니다.
+
+## 1.3.0 변경 · 버전 및 업데이트 정책
+
+- 명칭은 앱 제목, 실행 파일·설치 파일의 제품명/설명, 설치 목록에서 `PDFeather`로 통일했습니다. 버전은 프로그램명에 붙이지 않고 정보 페이지와 버전 속성에 별도로 표시합니다.
+- 게시자는 한국어 UI에서 `조민혁`, 영어 UI에서 `Minhyeok Cho`입니다. 실행 파일은 한국어·영어 회사 정보 테이블을 포함하고, 설치 목록은 Windows UI 언어에 따라 게시자를 설정합니다. Inno Setup 설치 파일 자체의 고정 회사 속성은 영어명이며 설치되는 프로그램의 게시자는 언어별로 표시됩니다.
+- 버전은 SemVer 2.0.0을 따릅니다. 기능 추가는 MINOR, 수정은 PATCH, 호환성을 깨는 변경은 MAJOR를 올립니다. `app_meta.py`를 단일 기준으로 사용하고 `python scripts/build_metadata.py`로 Windows/설치 메타데이터를 생성합니다.
+- 설정 → 일반 → 업데이트에서 자동 확인을 켜거나 끌 수 있습니다. 기본값은 켜짐이며 하루 한 번 백그라운드에서 확인합니다. 인터넷이 없거나 확인에 실패해도 문서 기능을 방해하지 않습니다. 설정 → 정보 → 지금 확인에서 수동으로 확인할 수 있습니다.
+- 정식 버전의 설치 EXE가 공개된 경우에만 새 버전을 알립니다. 베타·초안·구버전은 알리지 않습니다. 알림을 닫으면 같은 버전은 다시 자동 표시하지 않으며, 수동 확인은 계속 가능합니다.
+- 업데이트 확인은 버전이 포함된 User-Agent와 공개 릴리스 정보 요청만 전송합니다. PDF 내용·파일명·문서 경로는 전송하지 않습니다. 확인은 비동기이며 8초 내에 종료합니다.
+- 기존 1.2.0에는 확인 기능이 없으므로 1.3.0을 한 번 수동 설치해야 이후 알림을 받을 수 있습니다.
+- 설치 정보의 게시자와 Windows 보안 경고의 서명자는 별개입니다. 이 프로젝트에는 코드 서명 인증서가 포함되지 않으며, 보안 경고에 확인된 게시자로 표시하려면 실제 인증서로 서명해야 합니다.
 
 ## 텍스트 복사 · 문서 탭 · 다중캡처
 
@@ -72,8 +83,8 @@ git remote add origin https://github.com/minnnn0307/PDFeather.git
 git push -u origin main
 ```
 
-2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.2.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.2.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
-3. 버전 배포: `git tag v1.2.0` 후 `git push origin v1.2.0`을 실행하면 설치 EXE가 GitHub Release에 첨부됩니다. 저장소의 Actions 실행/쓰기 권한 정책이 허용되어야 합니다.
+2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.3.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.3.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
+3. 버전 배포: `app_meta.VERSION`을 올리고 RELEASE_NOTES.md를 갱신한 뒤 main에 push합니다. Windows 검사·설치 검증이 통과하면 `v<VERSION>` GitHub Release와 설치 EXE가 자동 게시됩니다. 이미 배포된 버전의 코드를 바꿀 때는 반드시 버전을 올립니다. 태그로 실행할 경우 태그는 `app_meta.VERSION`과 일치해야 합니다.
 
 서명 인증서는 포함되어 있지 않습니다. 서명 없는 설치 EXE에는 Windows 보안 경고가 표시될 수 있습니다. GitHub 저장소: https://github.com/minnnn0307/PDFeather
 
@@ -83,6 +94,7 @@ Python 3.12 x64와 Inno Setup 6 설치 후:
 
 ```powershell
 pip install -r requirements-build.txt
+python scripts/build_metadata.py
 # 배포본에는 THIRD_PARTY_NOTICES.md와 각 의존성의 라이선스를 함께 포함하세요.
 pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --icon assets/PDFeather-1.2.0.ico --version-file installer/version_info.txt --collect-all pypdfium2 main.py
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/setup.iss
@@ -92,7 +104,7 @@ pyinstaller --noconfirm --clean --windowed --onedir --name PDFeather --icon asse
 
 ## 검증 상태와 제한
 
-자동 검사: 실제 드래그·Ctrl+C 텍스트 복사, 스크롤 후 추가 드래그·다중캡처 이미지 클립보드, 합성 순서·폭 패딩·취소·크기 제한, 여러 탭의 보기·검색·선택 복원과 캐시 해제, 타일 결과와 고해상도 기준 이미지의 픽셀 일치, 500% 확대·2배 모니터 배율에서 부분 렌더링과 캐시 제한, 인쇄 배율 기준·입력 활성화, 페이지 범위 오류, N-up 배치 계산, 실제 5페이지 PDF 열기/렌더링, 네 가지 보기 모드, 포인터 기준 확대 좌표 보존, 페이지 끝 휠 넘김, 텍스트 검색 결과, 2-up 출력 PDF의 3장 생성, 인쇄 미리보기 중 이벤트 루프 응답, 출력 PDF의 실제 여백, 테마 전환과 설정 영속성, 단일·2페이지 중앙 정렬. Linux와 GitHub Actions의 Windows offscreen Qt 환경에서 수행합니다. 빌드된 Windows EXE 자체에서도 별도 프로세스 미리보기가 생성되는지 검사합니다. Windows 설치/제거, 프린터 드라이버별 양면·매수·용지 적용, 큰 문서 성능은 실제 Windows 장치에서 추가 확인해야 합니다. 양면 기능은 드라이버와 프린터 지원에 따릅니다. 미리보기는 레이아웃을 보여주며 프린터의 물리적 양면 동작은 재현하지 않습니다.
+자동 검사: SemVer 우선순위·안정 릴리스/자산 필터, 업데이트 실패·시간 제한·취소·하루 주기·사용자 설정, 양언어 제품 메타데이터, 실제 드래그·Ctrl+C 텍스트 복사, 스크롤 후 추가 드래그·다중캡처 이미지 클립보드, 합성 순서·폭 패딩·취소·크기 제한, 여러 탭의 보기·검색·선택 복원과 캐시 해제, 타일 결과와 고해상도 기준 이미지의 픽셀 일치, 500% 확대·2배 모니터 배율에서 부분 렌더링과 캐시 제한, 인쇄 배율 기준·입력 활성화, 페이지 범위 오류, N-up 배치 계산, 실제 5페이지 PDF 열기/렌더링, 네 가지 보기 모드, 포인터 기준 확대 좌표 보존, 페이지 끝 휠 넘김, 텍스트 검색 결과, 2-up 출력 PDF의 3장 생성, 인쇄 미리보기 중 이벤트 루프 응답, 출력 PDF의 실제 여백, 테마 전환과 설정 영속성, 단일·2페이지 중앙 정렬. Linux와 GitHub Actions의 Windows offscreen Qt 환경에서 수행합니다. 빌드된 Windows EXE 자체에서도 별도 프로세스 미리보기가 생성되는지 검사합니다. Windows 설치/제거, 프린터 드라이버별 양면·매수·용지 적용, 큰 문서 성능은 실제 Windows 장치에서 추가 확인해야 합니다. 양면 기능은 드라이버와 프린터 지원에 따릅니다. 미리보기는 레이아웃을 보여주며 프린터의 물리적 양면 동작은 재현하지 않습니다.
 
 검색은 PDF 텍스트 레이어를 대상으로 하며 OCR은 포함하지 않습니다. 검색 결과는 최대 10,000개입니다. 프린터 조회가 오래 걸리면 제한 시간 후 미리보기로 이동하며 다시 조회할 수 있습니다. 인쇄 중단 전에 Windows 대기열로 전송된 작업은 대기열에서 취소해야 합니다.
 

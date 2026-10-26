@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from layout import parse_pages, placement, grid, print_cells, print_placement
 from preferences import Preferences
+from app_meta import VERSION
 from PySide6.QtCore import QSettings
 from scripts.smoke_fixture import create_pdf
 from PySide6.QtWidgets import QApplication
@@ -16,6 +17,7 @@ from PySide6.QtGui import QPainter, QPageSize
 from main import Document, Window, PrintWindow
 
 app = QApplication.instance() or QApplication([])
+app.setProperty('offlineTests',True)
 
 class Tests(unittest.TestCase):
     def test_ranges(self):
@@ -97,7 +99,7 @@ class Tests(unittest.TestCase):
             panel=window.settings_panel
             panel.controls['theme'].setCurrentIndex(panel.controls['theme'].findData('light'))
             self.assertEqual(window.theme_name,'light')
-            self.assertNotIn('1.2.0',window.windowTitle())
+            self.assertNotIn(VERSION,window.windowTitle())
             panel.controls['render_mode'].setCurrentIndex(panel.controls['render_mode'].findData('page'))
             self.assertEqual(prefs.get('render_mode'),'page')
             panel.controls['render_mode'].setCurrentIndex(panel.controls['render_mode'].findData('tiles'))
