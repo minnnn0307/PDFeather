@@ -9,7 +9,7 @@ from collections import OrderedDict
 from pathlib import Path
 import pypdfium2 as pdfium
 from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QPoint, QPointF, QEvent, QUrl
-from PySide6.QtGui import QImage, QPainter, QColor, QIcon, QPixmap, QKeySequence, QShortcut, QPageLayout, QPageSize, QDesktopServices
+from PySide6.QtGui import QImage, QFont, QFontMetrics, QCursor, QPainter, QColor, QIcon, QPixmap, QKeySequence, QShortcut, QPageLayout, QPageSize, QDesktopServices
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QScrollArea,
     QPushButton, QComboBox, QSpinBox, QLabel, QFileDialog, QMessageBox, QSplitter,
     QListWidget, QListWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -120,7 +120,7 @@ class Canvas(CanvasInteraction,QWidget):
         w = self.reader
         self.rects = []
         if not w.doc:
-            self.resize(700, 700)
+            self.resize(w.scroll.viewport().size())
             self.update()
             return
         two = w.mode.currentIndex() >= 2
@@ -148,8 +148,14 @@ class Canvas(CanvasInteraction,QWidget):
         painter.fillRect(event.rect(), QColor(self.reader.theme['canvas']))
         w = self.reader
         if not w.doc:
-            painter.setPen(QColor(self.reader.theme['muted']))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, 'PDF 파일을 열거나 이 창으로 끌어 놓으세요\nCtrl+O')
+            center=self.rect().center(); wordfont=QFont('Segoe UI',28,QFont.Weight.DemiBold)
+            painter.setFont(wordfont); metrics=QFontMetrics(wordfont); width=64+18+metrics.horizontalAdvance('PDFeather')
+            x=center.x()-width/2; y=center.y()-65
+            painter.drawPixmap(round(x),round(y),logo_pixmap(64,w.theme_name=='dark',self.devicePixelRatioF()))
+            painter.setPen(QColor(w.theme['text'])); painter.drawText(QRectF(x+82,y, width-82,64),Qt.AlignmentFlag.AlignVCenter,'PDFeather')
+            painter.setFont(QFont('Segoe UI',11)); painter.setPen(QColor(w.theme['muted']))
+            painter.drawText(QRectF(8,center.y()+20,self.width()-16,48),Qt.AlignmentFlag.AlignCenter|Qt.TextFlag.TextWordWrap,'PDF 파일을 열거나 이 창으로 끌어 놓으세요')
+            painter.setFont(QFont('Segoe UI',10)); painter.drawText(QRectF(0,center.y()+73,self.width(),24),Qt.AlignmentFlag.AlignCenter,'Ctrl+O · 파일 열기')
             return
         try:
             for i, rect in self.rects:
@@ -372,6 +378,7 @@ class Window(QMainWindow):
         set_theme(self.theme_name)
         self.external_pending=[]; self.external_draining=False; self.external_activate=False
         self.external_timer=QTimer(self); self.external_timer.setSingleShot(True); self.external_timer.timeout.connect(self.drain_external_files)
+        self.resize_cursor_active=False; self.thumb_lru=OrderedDict()
         self.active_tab=None; self.restoring_tab=False; self.selection=None; self.selection_tool='pointer'; self.captures=CaptureCollection()
         self.doc=None; self.current=0; self.zoom=1.; self.fit_mode=None; self.last_flip=0
         self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=''; self.suppress_scroll=False
@@ -412,7 +419,7 @@ class Window(QMainWindow):
         self.search_debounce=QTimer(self); self.search_debounce.setSingleShot(True); self.search_debounce.setInterval(250); self.search_debounce.timeout.connect(self.begin_search)
         self.search_timer=QTimer(self); self.search_timer.setInterval(1); self.search_timer.timeout.connect(self.search_step)
         self.search_input.textChanged.connect(lambda *_:self.search_debounce.start()); self.search_input.returnPressed.connect(lambda:self.next_match(-1 if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else 1))
-        self.thumbs=QListWidget(); self.thumbs.setIconSize(QSize(130,165)); self.thumbs.setMinimumWidth(140); self.thumbs.setItemDelegate(ThumbnailDelegate(self.thumbs)); self.thumbs.currentRowChanged.connect(self.go)
+        self.thumbs=QListWidget(); self.thumbs.setIconSize(QSize(130,165)); self.thumbs.setMinimumWidth(140); self.thumbs.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel); self.thumbs.setItemDelegate(ThumbnailDelegate(self.thumbs)); self.thumbs.currentRowChanged.connect(self.go)
         self.scroll=QScrollArea(); self.scroll.setFrameShape(QFrame.Shape.NoFrame); self.scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.canvas=Canvas(self); self.scroll.setWidget(self.canvas); self.notice.setParent(self.scroll.viewport())
         self.split=QSplitter(); self.split.setHandleWidth(1); self.split.addWidget(self.thumbs); self.split.addWidget(self.scroll); self.split.setSizes([164,1036]); root.addWidget(self.split,1)
@@ -443,6 +450,7 @@ class Window(QMainWindow):
         self.thumb_timer=QTimer(self); self.thumb_timer.setSingleShot(True); self.thumb_timer.timeout.connect(self.render_thumbs)
         for key,callback in [(QKeySequence.StandardKey.Open,self.choose),(QKeySequence.StandardKey.Print,self.print_document),(QKeySequence.StandardKey.Find,self.show_search),('Escape',self.hide_search),('F1',self.help),('Ctrl+,',self.show_settings),('Ctrl+W',self.close_current_tab),('Ctrl+Tab',lambda:self.cycle_tab(1)),('Ctrl+Shift+Tab',lambda:self.cycle_tab(-1)),('F3',lambda:self.next_match(1)),('Shift+F3',lambda:self.next_match(-1)),('Ctrl+0',lambda:self.fit('page')),('Ctrl+1',lambda:self.fit('width')),('Ctrl+=',lambda:self.set_zoom(self.zoom*1.15)),('Ctrl+-',lambda:self.set_zoom(self.zoom/1.15)),('PgDown',lambda:self.turn(1)),('PgUp',lambda:self.turn(-1))]: QShortcut(QKeySequence(key),self,activated=callback)
         QApplication.instance().installEventFilter(self)
+        for widget in [self,*self.findChildren(QWidget)]: widget.setMouseTracking(True)
         self.canvas.arrange()
         self.apply_theme(self.theme_name)
         self.update_checker=UpdateChecker(self); self.update_checker.completed.connect(self.on_update_checked); self.update_checker.failed.connect(self.on_update_failed)
@@ -578,7 +586,26 @@ class Window(QMainWindow):
             if value=='actual': self.set_zoom(1.)
             else: self.fit(value)
 
+    def clear_resize_cursor(self):
+        if self.resize_cursor_active:
+            QApplication.restoreOverrideCursor(); self.resize_cursor_active=False
+
     def eventFilter(self,obj,event):
+        if event.type() in (QEvent.Type.MouseMove,QEvent.Type.Enter) and isinstance(obj,QWidget):
+            edges=Qt.Edge(0)
+            if obj.window() is self and not self.isMaximized() and QApplication.activeModalWidget() is None:
+                point=self.mapFromGlobal(event.globalPosition().toPoint() if hasattr(event,'globalPosition') else QCursor.pos())
+                edges=resize_edges(point,self.size())
+            if edges:
+                horizontal=bool(edges & (Qt.Edge.LeftEdge|Qt.Edge.RightEdge)); vertical=bool(edges & (Qt.Edge.TopEdge|Qt.Edge.BottomEdge))
+                if horizontal and vertical:
+                    same=bool(edges & Qt.Edge.LeftEdge)==bool(edges & Qt.Edge.TopEdge)
+                    shape=Qt.CursorShape.SizeFDiagCursor if same else Qt.CursorShape.SizeBDiagCursor
+                else: shape=Qt.CursorShape.SizeHorCursor if horizontal else Qt.CursorShape.SizeVerCursor
+                if self.resize_cursor_active: QApplication.changeOverrideCursor(QCursor(shape))
+                else: QApplication.setOverrideCursor(QCursor(shape)); self.resize_cursor_active=True
+            else: self.clear_resize_cursor()
+        if obj is self and event.type() in (QEvent.Type.Leave,QEvent.Type.WindowDeactivate,QEvent.Type.WindowStateChange): self.clear_resize_cursor()
         if obj is self and event.type()==QEvent.Type.Resize and hasattr(self,'footer_layout'):
             compact=self.width()<850
             self.footer_spacer.setVisible(not compact)
@@ -590,6 +617,12 @@ class Window(QMainWindow):
         if event.type()==QEvent.Type.MouseButtonPress and event.button()==Qt.MouseButton.LeftButton and not self.isMaximized() and isinstance(obj,QWidget) and obj.window()==self:
             pt=self.mapFromGlobal(event.globalPosition().toPoint()); edges=resize_edges(pt,self.size())
             if edges and self.windowHandle() and self.windowHandle().startSystemResize(edges): return True
+        if event.type()==QEvent.Type.Wheel and QApplication.activeModalWidget() is None and obj in (self.scroll.viewport(),self.thumbs.viewport()) and not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta=event.angleDelta().y()
+            if delta and (obj is self.thumbs.viewport() or not (self.doc and self.prefs.get('edge_flip') and self.mode.currentIndex() in (0,2))):
+                area=self.thumbs if obj is self.thumbs.viewport() else self.scroll
+                bar=area.verticalScrollBar(); bar.setValue(bar.value()-round(delta/120*self.prefs.get('scroll_step')))
+                event.accept(); return True
         if event.type()==QEvent.Type.Wheel and QApplication.activeModalWidget() is None and obj==self.scroll.viewport():
             delta=event.angleDelta().y() or event.pixelDelta().y()
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -605,6 +638,8 @@ class Window(QMainWindow):
                         self.turn(direction); self.last_flip=time.monotonic()
                         sb.setValue(0 if direction>0 else sb.maximum())
                     event.accept(); return True
+            if event.angleDelta().y() and not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                sb=self.scroll.verticalScrollBar(); sb.setValue(sb.value()-round(event.angleDelta().y()/120*self.prefs.get('scroll_step'))); event.accept(); return True
         if event.type()==QEvent.Type.KeyPress and obj==self.search_input and event.key()==Qt.Key.Key_Escape: self.hide_search(); return True
         return super().eventFilter(obj,event)
 
@@ -620,7 +655,7 @@ class Window(QMainWindow):
 
     def refit(self):
         if self.restoring_tab: return
-        if self.fit_mode: self.fit(self.fit_mode)
+        if self.fit_mode and self.doc: self.fit(self.fit_mode)
         else: self.canvas.arrange()
         self.queue_thumbs()
 
@@ -757,7 +792,7 @@ class Window(QMainWindow):
         state.matches=self.matches; state.match_index=self.match_index
 
     def rebuild_thumbnails(self):
-        self.thumbs.blockSignals(True); self.thumbs.clear()
+        self.thumb_lru.clear(); self.thumbs.blockSignals(True); self.thumbs.clear()
         if self.doc:
             for i in range(len(self.doc.sizes)):
                 item=QListWidgetItem(str(i+1)); item.setSizeHint(QSize(140,185)); self.thumbs.addItem(item)
@@ -812,21 +847,31 @@ class Window(QMainWindow):
     def cycle_tab(self,direction):
         if self.file_tabs.count(): self.file_tabs.setCurrentIndex((self.file_tabs.currentIndex()+direction)%self.file_tabs.count())
 
-    def queue_thumbs(self, *_): self.thumb_timer.start(30)
+    def queue_thumbs(self, *_):
+        if not self.thumb_timer.isActive(): self.thumb_timer.start(0)
 
     def render_thumbs(self):
-        if not self.doc: return
-        visible = self.thumbs.viewport().rect()
-        for i in range(self.thumbs.count()):
-            item = self.thumbs.item(i)
-            if item.icon().isNull() and self.thumbs.visualItemRect(item).intersects(visible):
-                try: item.setIcon(QIcon(QPixmap.fromImage(self.doc.image(i, 112/self.doc.sizes[i][0], cached=False))))
-                except Exception: item.setText(f'{i+1} · 미리보기 실패')
+        if not self.doc or not self.thumbs.isVisible(): return
+        visible=self.thumbs.viewport().rect(); first=max(0,self.thumbs.indexAt(visible.topLeft()).row())
+        last=self.thumbs.indexAt(visible.bottomLeft()).row()
+        if last<first: last=min(self.thumbs.count()-1,first+visible.height()//185+1)
+        near=range(max(0,first-12),min(self.thumbs.count(),last+13))
+        indices=sorted(near,key=lambda i:0 if first<=i<=last else min(abs(i-first),abs(i-last)))
+        for i in range(first,last+1):
+            if i in self.thumb_lru: self.thumb_lru.move_to_end(i)
+        for i in indices:
+            item=self.thumbs.item(i)
+            if item.icon().isNull() and not item.data(Qt.ItemDataRole.UserRole+11):
+                try:
+                    item.setIcon(QIcon(QPixmap.fromImage(self.doc.image(i,112/self.doc.sizes[i][0],cached=False))))
+                    item.setData(Qt.ItemDataRole.UserRole+10,time.monotonic()); self.thumb_lru[i]=True
+                    if first<=i<=last:
+                        for delay in (30,70,110,160): QTimer.singleShot(delay,self.thumbs.viewport().update)
+                except Exception:
+                    item.setData(Qt.ItemDataRole.UserRole+11,True); item.setToolTip('미리보기를 생성할 수 없습니다.')
+                while len(self.thumb_lru)>160:
+                    old,_=self.thumb_lru.popitem(last=False); self.thumbs.item(old).setIcon(QIcon())
                 self.thumb_timer.start(1); return
-        # Keep only nearby thumbnail icons in memory.
-        top = self.thumbs.indexAt(visible.topLeft()).row()
-        for i in range(self.thumbs.count()):
-            if abs(i-max(0,top))>30: self.thumbs.item(i).setIcon(QIcon())
 
     def set_zoom(self, zoom, anchor=None, keep_fit=False):
         zoom=max(.1,min(10.,zoom))
@@ -905,6 +950,7 @@ class Window(QMainWindow):
             if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile())
 
     def closeEvent(self, event):
+        self.clear_resize_cursor()
         self.save_tab_state()
         for i in range(self.file_tabs.count()): self.prefs.save_document(self.file_tabs.tabData(i))
         if self.prefs.get('remember_geometry'): self.prefs.storage.setValue('window_geometry',self.saveGeometry()); self.prefs.storage.sync()

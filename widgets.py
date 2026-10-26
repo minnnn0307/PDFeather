@@ -3,6 +3,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QIcon, QPixmap, QPainterPath, 
 from PySide6.QtWidgets import QApplication, QWidget, QHBoxLayout, QLabel, QToolButton, QStyledItemDelegate, QStyle, QTabBar, QMenu
 from branding import logo_pixmap
 import math
+import time
 from themes import PALETTES
 
 THEME='dark'
@@ -219,9 +220,14 @@ class ThumbnailDelegate(QStyledItemDelegate):
         if isinstance(image,QIcon) and not image.isNull():
             pix=image.pixmap(QSize(r.width(),r.height()-8)); size=pix.size(); size.scale(r.size(),Qt.AspectRatioMode.KeepAspectRatio)
             target=QRectF(r.center().x()-size.width()/2,r.center().y()-size.height()/2,size.width(),size.height())
-            painter.drawPixmap(target,pix,QRectF(pix.rect()))
+            painter.fillRect(target,QColor('#ffffff')); painter.save()
+            started=index.data(Qt.ItemDataRole.UserRole+10)
+            if started: painter.setOpacity(min(1.,max(0.,(time.monotonic()-started)/.14)))
+            painter.drawPixmap(target,pix,QRectF(pix.rect())); painter.restore()
         else:
-            painter.fillRect(r.adjusted(8,0,-8,0),QColor(PALETTES[THEME]['placeholder']))
+            paper=r.adjusted(8,0,-8,0); painter.fillRect(paper,QColor('#ffffff'))
+            painter.setPen(QPen(QColor('#e8edf1'),3,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap))
+            for row in range(5): painter.drawLine(QPointF(paper.left()+12,paper.top()+22+row*12),QPointF(paper.right()-12-(14 if row==4 else 0),paper.top()+22+row*12))
         label=QRectF(r.center().x()-25,r.bottom()-24,50,23)
         painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(20,25,33,205)); painter.drawRoundedRect(label,7,7)
         painter.setPen(QColor('#ffffff')); painter.drawText(label,Qt.AlignmentFlag.AlignCenter,str(index.row()+1))

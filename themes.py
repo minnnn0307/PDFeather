@@ -1,4 +1,8 @@
-from PySide6.QtGui import QPalette, QColor
+from PySide6.QtGui import QPalette, QColor, QPainter, QPen, QPainterPath, QImage
+from pathlib import Path
+import tempfile
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QProxyStyle, QStyle
 
 PALETTES={
     'dark':dict(text='#e1e6ee',window='#262c35',title='#171c24',bar='#202630',muted='#b9c2d1',input='#303844',line='#465061',hover='#394251',pressed='#495770',sidebar='#242b35',canvas='#363c45',accent='#3e506f',button_hover='#50668e',disabled='#343a43',scroll='#282f39',handle='#667081',selected='#334358',placeholder='#424a57',error='#ffaaaa'),
@@ -8,6 +12,7 @@ PALETTES={
 
 def stylesheet(name):
     c=PALETTES[name]
+    up_arrow,down_arrow=control_arrows(name)
     return f"""
 QWidget {{ font-family:'Malgun Gothic','Segoe UI',sans-serif; font-size:12px; color:{c['text']}; }}
 QMainWindow,QDialog,#shell {{ background:{c['window']}; }}
@@ -20,6 +25,15 @@ QToolButton:hover {{ background:{c['hover']}; }}
 QToolButton:pressed {{ background:{c['pressed']}; }}
 #closeButton:hover {{ background:#c42b3c; }}
 QComboBox,QSpinBox,QDoubleSpinBox,QLineEdit {{ background:{c['input']}; border:1px solid {c['line']}; border-radius:5px; padding:5px 7px; selection-background-color:#586baf; }}
+#popupCard QComboBox,#popupCard QSpinBox,#popupCard QDoubleSpinBox {{ min-height:22px; border-radius:8px; padding:6px 34px 6px 10px; }}
+#popupCard QComboBox:hover,#popupCard QSpinBox:hover,#popupCard QDoubleSpinBox:hover {{ border-color:{c['muted']}; }}
+#popupCard QComboBox:focus,#popupCard QSpinBox:focus,#popupCard QDoubleSpinBox:focus,#popupCard QLineEdit:focus {{ border-color:#259f90; }}
+#popupCard QComboBox::drop-down {{ subcontrol-origin:padding; subcontrol-position:right center; width:28px; border:0; }}
+#popupCard QSpinBox::up-button,#popupCard QDoubleSpinBox::up-button {{ subcontrol-origin:border; subcontrol-position:top right; width:26px; border:0; border-top-right-radius:8px; background:{c['hover']}; }}
+#popupCard QSpinBox::down-button,#popupCard QDoubleSpinBox::down-button {{ subcontrol-origin:border; subcontrol-position:bottom right; width:26px; border:0; border-bottom-right-radius:8px; background:{c['hover']}; }}
+#popupCard QSpinBox::up-button:hover,#popupCard QSpinBox::down-button:hover,#popupCard QDoubleSpinBox::up-button:hover,#popupCard QDoubleSpinBox::down-button:hover {{ background:{c['selected']}; }}
+#popupCard QSpinBox::up-arrow,#popupCard QDoubleSpinBox::up-arrow {{ image:url("{up_arrow}"); width:10px; height:10px; }}
+#popupCard QSpinBox::down-arrow,#popupCard QDoubleSpinBox::down-arrow,#popupCard QComboBox::down-arrow {{ image:url("{down_arrow}"); width:10px; height:10px; }}
 QComboBox QAbstractItemView {{ background:{c['input']}; selection-background-color:{c['selected']}; }}
 QListWidget {{ background:{c['sidebar']}; border:0; outline:0; }}
 QScrollArea {{ border:0; background:{c['canvas']}; }}
@@ -91,3 +105,20 @@ def apply_palette(app,name):
     for role,key in [(QPalette.ColorRole.Window,'window'),(QPalette.ColorRole.WindowText,'text'),(QPalette.ColorRole.Base,'input'),(QPalette.ColorRole.AlternateBase,'sidebar'),(QPalette.ColorRole.Text,'text'),(QPalette.ColorRole.Button,'accent'),(QPalette.ColorRole.ButtonText,'text'),(QPalette.ColorRole.ToolTipBase,'window'),(QPalette.ColorRole.ToolTipText,'text'),(QPalette.ColorRole.PlaceholderText,'muted')]: palette.setColor(role,QColor(c[key]))
     palette.setColor(QPalette.ColorRole.Highlight,QColor('#347fba')); palette.setColor(QPalette.ColorRole.HighlightedText,QColor('#ffffff'))
     app.setPalette(palette); app.setStyleSheet(stylesheet(name))
+
+
+_arrow_dir=None
+
+def control_arrows(name):
+    global _arrow_dir
+    if _arrow_dir is None: _arrow_dir=tempfile.TemporaryDirectory(prefix='pdfeather-controls-')
+    paths=[]
+    for up in (True,False):
+        path=Path(_arrow_dir.name)/(name+('-up.png' if up else '-down.png'))
+        if not path.exists():
+            image=QImage(24,24,QImage.Format.Format_ARGB32_Premultiplied); image.fill(Qt.GlobalColor.transparent)
+            painter=QPainter(image); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(QColor(PALETTES[name]['text']),3,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap,Qt.PenJoinStyle.RoundJoin))
+            line=QPainterPath(); line.moveTo(5,15 if up else 9); line.lineTo(12,8 if up else 16); line.lineTo(19,15 if up else 9); painter.drawPath(line); painter.end(); image.save(str(path))
+        paths.append(path.as_posix())
+    return paths

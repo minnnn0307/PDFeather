@@ -5,7 +5,7 @@ from app_meta import VERSION,publisher_for_language
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QComboBox,QCheckBox,QSpinBox,
     QDoubleSpinBox,QGroupBox,QLabel,QPushButton,QGridLayout,QHBoxLayout,QListWidget,QStackedWidget,QScrollArea)
 
-DEFAULTS=dict(auto_update=True,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,
+DEFAULTS=dict(auto_update=True,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,scroll_step=100,
     edge_flip=True,remember_document=True,remember_geometry=True,print_paper='A4',print_duplex=0,
     margin_left=10.,margin_top=10.,margin_right=10.,margin_bottom=10.,print_gap=2.)
 
@@ -23,6 +23,7 @@ class Preferences:
             if key=='default_mode' and not 0<=value<=3: return default
             if key=='print_duplex' and not 0<=value<=2: return default
             if key=='wheel_step' and not 5<=value<=50: return default
+            if key=='scroll_step' and not 20<=value<=600: return default
             if (key.startswith('margin_') or key=='print_gap') and not 0<=value<=100: return default
             return value
         except (TypeError,ValueError): return default
@@ -102,6 +103,8 @@ class SettingsPanel(QWidget):
         hint=QLabel('같은 파일을 다시 열면 마지막 보기 방식·위치·배율을 복원합니다. 끄면 기본 보기로 열립니다. 최대 200개 문서를 이 컴퓨터에 기억합니다.'); hint.setWordWrap(True); hint.setObjectName('mutedText'); memory.addRow(hint)
         navigation=group(reading,'마우스 및 페이지 이동')
         step=QSpinBox(); step.setRange(5,50); step.setSuffix('%'); self.bind(navigation,'휠 확대·축소 단계','wheel_step',step)
+        distance=QSpinBox(); distance.setRange(20,600); distance.setSingleStep(10); distance.setSuffix(' px'); self.bind(navigation,'휠 한 칸 이동량','scroll_step',distance)
+        hint=QLabel('문서와 썸네일에 함께 적용됩니다. 터치패드의 정밀 스크롤은 기기 동작을 유지합니다.'); hint.setWordWrap(True); hint.setObjectName('mutedText'); navigation.addRow(hint)
         self.check(navigation,'페이지 끝에서 휠로 이전·다음 페이지 넘기기','edge_flip'); reading.addStretch()
         printing_page=page('인쇄 기본값','다음 인쇄 작업에 사용할 기본값입니다. 인쇄 창에서 작업별로 변경할 수 있습니다.')
         printing=group(printing_page,'용지와 출력')
