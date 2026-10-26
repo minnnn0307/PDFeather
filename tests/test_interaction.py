@@ -23,6 +23,40 @@ def make_window(temp):
     return Window(Preferences(QSettings(str(Path(temp)/'settings.ini'),QSettings.Format.IniFormat)))
 
 class InteractionTests(unittest.TestCase):
+    def test_titlebar_drag_maximize_and_restore(self):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QMouseEvent
+        with tempfile.TemporaryDirectory() as temp:
+            window=make_window(temp); window.show(); settle()
+            try:
+                bar=window.titlebar; screen=window.screen().availableGeometry()
+                normal_size=window.size()
+                def send(target,kind,point,buttons):
+                    local=target.mapFromGlobal(point)
+                    event=QMouseEvent(kind,QPointF(local),QPointF(point),
+                        Qt.MouseButton.NoButton if kind==QEvent.Type.MouseMove else Qt.MouseButton.LeftButton,
+                        buttons,Qt.KeyboardModifier.NoModifier)
+                    QApplication.sendEvent(target,event); settle()
+                start=bar.mapToGlobal(QPoint(100,20))
+                top=QPoint(screen.center().x(),screen.top())
+                send(bar,QEvent.Type.MouseButtonPress,start,Qt.MouseButton.LeftButton)
+                send(bar,QEvent.Type.MouseMove,top,Qt.MouseButton.LeftButton)
+                send(bar,QEvent.Type.MouseButtonRelease,top,Qt.MouseButton.NoButton)
+                self.assertTrue(window.isMaximized()); self.assertEqual(bar.max_button.property('iconName'),'restore')
+                start=bar.mapToGlobal(QPoint(100,20)); end=start+QPoint(40,140)
+                send(bar,QEvent.Type.MouseButtonPress,start,Qt.MouseButton.LeftButton)
+                send(bar,QEvent.Type.MouseMove,end,Qt.MouseButton.LeftButton)
+                send(bar,QEvent.Type.MouseButtonRelease,end,Qt.MouseButton.NoButton)
+                self.assertFalse(window.isMaximized()); self.assertEqual(window.size(),normal_size)
+                self.assertEqual(bar.max_button.property('iconName'),'maximize')
+                self.assertLess(abs(window.mapFromGlobal(end).y()-20),2)
+                # A click alone must not restore a maximized window.
+                window.showMaximized(); settle(); start=bar.mapToGlobal(QPoint(100,20))
+                send(bar,QEvent.Type.MouseButtonPress,start,Qt.MouseButton.LeftButton)
+                send(bar,QEvent.Type.MouseButtonRelease,start,Qt.MouseButton.NoButton)
+                self.assertTrue(window.isMaximized())
+            finally: window.close()
+
     def test_stacking_order_padding_undo_and_limit(self):
         collection=CaptureCollection(limit=200)
         try:

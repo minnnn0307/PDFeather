@@ -1,6 +1,6 @@
-from PySide6.QtCore import Qt, QRectF, QPointF, QSize, Signal
+from PySide6.QtCore import Qt, QRectF, QPointF, QSize, Signal, QEvent, QPoint
 from PySide6.QtGui import QPainter, QColor, QPen, QIcon, QPixmap, QPainterPath, QAction, QActionGroup
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QToolButton, QStyledItemDelegate, QStyle, QTabBar, QMenu
+from PySide6.QtWidgets import QApplication, QWidget, QHBoxLayout, QLabel, QToolButton, QStyledItemDelegate, QStyle, QTabBar, QMenu
 from branding import logo_pixmap
 import math
 from themes import PALETTES
@@ -95,16 +95,21 @@ class TitleTabBar(QTabBar):
 
     def mousePressEvent(self,event):
         if event.button()==Qt.MouseButton.LeftButton and self.tabAt(event.position().toPoint())<0:
-            handle=self.window().windowHandle()
-            if handle: handle.startSystemMove()
+            self.parentWidget().mousePressEvent(event)
             return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self,event):
+        if self.parentWidget().drag_origin is not None: self.parentWidget().mouseMoveEvent(event)
+        else: super().mouseMoveEvent(event)
 
     def mouseDoubleClickEvent(self,event):
         if self.tabAt(event.position().toPoint())<0: self.parentWidget().toggle()
         else: super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton and self.parentWidget().drag_origin is not None:
+            self.parentWidget().mouseReleaseEvent(event); return
         if event.button()==Qt.MouseButton.MiddleButton:
             index=self.tabAt(event.position().toPoint())
             if index>=0: self.tabCloseRequested.emit(index)
@@ -138,7 +143,7 @@ class ViewModePicker(QToolButton):
 
 class TitleBar(QWidget):
     def __init__(self, window):
-        super().__init__(window); self.reader=window; self.setObjectName('titleBar'); self.setFixedHeight(42)
+        super().__init__(window); self.reader=window; self.drag_origin=None; self.dragging=False; self.setObjectName('titleBar'); self.setFixedHeight(42)
         row=QHBoxLayout(self); row.setContentsMargins(14,0,4,0); row.setSpacing(4)
         self.brand=QLabel(); self.brand.setObjectName('brand'); self.brand.setFixedSize(16,16); self.brand.setAlignment(Qt.AlignmentFlag.AlignCenter); self.brand.setPixmap(logo_pixmap(16,THEME=='dark',window.devicePixelRatioF())); row.addWidget(self.brand)
         self.title=QLabel('PDFeather'); self.title.setObjectName('windowTitle'); row.addWidget(self.title); row.addSpacing(14)
@@ -146,6 +151,7 @@ class TitleBar(QWidget):
         self.empty_space=QWidget(); row.addWidget(self.empty_space,1)
         self.drag_space=QWidget(); self.drag_space.setFixedWidth(28); row.addWidget(self.drag_space)
         self.sync_tabs()
+        window.installEventFilter(self)
         row.addWidget(tool('minimize','최소화',window.showMinimized))
         self.max_button=tool('maximize','최대화 / 창 모드',self.toggle); row.addWidget(self.max_button)
         close=tool('close','종료',window.close); close.setObjectName('closeButton'); row.addWidget(close)
@@ -154,12 +160,49 @@ class TitleBar(QWidget):
     def sync_tabs(self):
         present=self.tabs.count()>0; self.tabs.setVisible(present); self.empty_space.setVisible(not present)
 
+    def sync_maximize_icon(self):
+        name='restore' if self.reader.isMaximized() else 'maximize'
+        self.max_button.setProperty('iconName',name); self.max_button.setIcon(icon(name))
+
+    def eventFilter(self,obj,event):
+        if obj is self.reader and event.type()==QEvent.Type.WindowStateChange:
+            self.sync_maximize_icon()
+        return super().eventFilter(obj,event)
+
     def toggle(self):
+        self.drag_origin=None; self.dragging=False
         self.reader.showNormal() if self.reader.isMaximized() else self.reader.showMaximized()
-        self.max_button.setProperty('iconName','restore' if self.reader.isMaximized() else 'maximize'); self.max_button.setIcon(icon(self.max_button.property('iconName')))
+        self.sync_maximize_icon()
 
     def mousePressEvent(self,event):
-        if event.button()==Qt.MouseButton.LeftButton and self.reader.windowHandle(): self.reader.windowHandle().startSystemMove()
+        if event.button()==Qt.MouseButton.LeftButton:
+            self.drag_origin=event.globalPosition().toPoint()
+            self.drag_offset=self.reader.mapFromGlobal(self.drag_origin)
+            self.drag_ratio=max(0.,min(1.,self.drag_offset.x()/max(1,self.reader.width())))
+            self.dragging=False; event.accept()
+
+    def mouseMoveEvent(self,event):
+        if self.drag_origin is None or not event.buttons() & Qt.MouseButton.LeftButton: return
+        point=event.globalPosition().toPoint()
+        if not self.dragging:
+            if (point-self.drag_origin).manhattanLength()<QApplication.startDragDistance(): return
+            self.dragging=True
+            if self.reader.isMaximized():
+                normal=self.reader.normalGeometry()
+                self.reader.showNormal()
+                self.reader.resize(normal.size())
+                self.drag_offset=QPoint(round(self.reader.width()*self.drag_ratio),min(self.drag_offset.y(),self.height()-1))
+        self.reader.move(point-self.drag_offset); event.accept()
+
+    def mouseReleaseEvent(self,event):
+        if event.button()!=Qt.MouseButton.LeftButton or self.drag_origin is None: return
+        point=event.globalPosition().toPoint()
+        screen=QApplication.screenAt(point)
+        if self.dragging and screen is not None:
+            bounds=screen.availableGeometry()
+            if bounds.left()<=point.x()<=bounds.right() and point.y()<=bounds.top()+8:
+                self.reader.showMaximized()
+        self.drag_origin=None; self.dragging=False; self.sync_maximize_icon(); event.accept()
 
     def mouseDoubleClickEvent(self,event):
         if event.button()==Qt.MouseButton.LeftButton: self.toggle()
