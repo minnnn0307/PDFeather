@@ -13,10 +13,11 @@ from PySide6.QtGui import QImage, QPainter, QColor, QIcon, QPixmap, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QScrollArea,
     QPushButton, QComboBox, QSpinBox, QLabel, QFileDialog, QMessageBox, QSplitter,
     QListWidget, QListWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QInputDialog, QFrame, QSizeGrip, QDoubleSpinBox, QGridLayout, QToolButton, QTabBar, QButtonGroup)
+    QLineEdit, QInputDialog, QFrame, QProgressBar, QLayout, QSizePolicy, QBoxLayout, QDoubleSpinBox, QGridLayout, QToolButton, QTabBar, QButtonGroup, QStackedWidget)
 from layout import parse_pages, grid, placement, print_cells
 from widgets import TitleBar, ThumbnailDelegate, tool, set_theme, icon, CategorySections, ViewModePicker
 from preferences import Preferences, SettingsPanel
+from popups import PopupSheet, resize_edges
 from branding import application_icon, logo_pixmap
 from themes import PALETTES, stylesheet, apply_palette
 from rendering import visible_tiles
@@ -178,12 +179,12 @@ class Canvas(CanvasInteraction,QWidget):
             painter.drawText(event.rect(), Qt.AlignmentFlag.AlignCenter, f'렌더링 오류: {exc}')
 
 
-class PrintWindow(QDialog):
+class PrintWindow(PopupSheet):
     def __init__(self, doc, parent):
-        super().__init__(parent)
+        super().__init__(parent,'인쇄',QSize(1060,720))
         self.doc=doc; self.process=None; self.connection=None; self.kind=None
         self.temp=tempfile.TemporaryDirectory(prefix='pdfeather-print-')
-        self.setWindowTitle('PDFeather · 인쇄'); self.resize(1100,780)
+        self.setWindowTitle('PDFeather · 인쇄')
         self.pages=QLineEdit(); self.pages.setPlaceholderText('전체 (예: 1-3,5)')
         self.orientation=QComboBox(); self.orientation.addItems(['세로','가로'])
         self.duplex=QComboBox(); self.duplex.addItems(['단면','양면 · 긴 쪽 넘김','양면 · 짧은 쪽 넘김'])
@@ -204,13 +205,17 @@ class PrintWindow(QDialog):
         self.error=QLabel(); self.error.setObjectName('errorText'); self.error.setWordWrap(True)
         self.state=QLabel('프린터 조회 중…'); self.state.setWordWrap(True)
         self.settings_widget=QWidget(); side=QVBoxLayout(self.settings_widget); side.setContentsMargins(16,18,16,16); side.setSpacing(12)
-        title=QLabel('인쇄'); title.setObjectName('sectionTitle'); side.addWidget(title)
-        self.sections=CategorySections(); side.addWidget(self.sections,1)
+        title=QLabel('인쇄 옵션'); title.setObjectName('cardHeading'); side.addWidget(title)
+        choices=QWidget(); choices.setObjectName('printCategories'); choice_layout=QGridLayout(choices); choice_layout.setContentsMargins(0,0,0,0); choice_layout.setSpacing(6)
+        self.sections=QStackedWidget(); category_group=QButtonGroup(self); category_group.setExclusive(True)
+        for index,label in enumerate(['프린터 · 범위','용지 · 배치','크기 · 배율','여백 · 간격']):
+            button=QPushButton(label); button.setObjectName('categoryChip'); button.setCheckable(True); button.setChecked(index==0); category_group.addButton(button,index); choice_layout.addWidget(button,index//2,index%2)
+        category_group.idClicked.connect(self.sections.setCurrentIndex); side.addWidget(choices); side.addWidget(self.sections,1)
         def section(title,rows):
             page=QWidget(); page.setObjectName('printSection'); layout=QVBoxLayout(page); layout.setContentsMargins(12,14,12,14); layout.setSpacing(12)
             form=QFormLayout(); form.setVerticalSpacing(12)
             for label,control in rows: form.addRow(label,control)
-            layout.addLayout(form); layout.addStretch(); self.sections.addItem(page,title)
+            layout.addLayout(form); layout.addStretch(); self.sections.addWidget(page)
             return form
         section('프린터 및 범위',[('프린터',self.devices),('페이지',self.pages),('매수',self.copies),('양면',self.duplex)])
         section('용지 및 배치',[('용지',self.paper),('방향',self.orientation),('한 면당 페이지',self.nup)])
@@ -221,7 +226,7 @@ class PrintWindow(QDialog):
         self.sections.setCurrentIndex(0)
         self.submit_button=QPushButton('인쇄'); self.submit_button.setObjectName('primaryButton'); self.submit_button.clicked.connect(self.submit)
         retry=QPushButton('프린터 다시 조회'); retry.clicked.connect(lambda:self.start_job('devices',{}) if self.kind!='print' else None)
-        self.cancel_button=QPushButton('작업 중단'); self.cancel_button.clicked.connect(self.cancel_job)
+        self.cancel_button=QPushButton('미리보기 중단'); self.cancel_button.clicked.connect(self.cancel_job)
         actions=QHBoxLayout(); actions.addWidget(retry); actions.addWidget(self.cancel_button); side.addLayout(actions)
         side.addWidget(self.state); side.addWidget(self.error); side.addWidget(self.submit_button)
         self.preview_label=QLabel('미리보기 준비 중…'); self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -229,13 +234,27 @@ class PrintWindow(QDialog):
         preview_box=QWidget(); preview_layout=QVBoxLayout(preview_box); preview_layout.setContentsMargins(0,0,0,0)
         nav=QHBoxLayout(); nav.addStretch(); nav.addWidget(tool('prev','이전 용지',lambda:self.sheet.setValue(self.sheet.value()-1))); nav.addWidget(self.sheet); nav.addWidget(self.sheets); nav.addWidget(tool('next','다음 용지',lambda:self.sheet.setValue(self.sheet.value()+1))); nav.addStretch()
         preview_layout.addLayout(nav); preview_layout.addWidget(self.preview_area)
-        root=QHBoxLayout(self); root.setContentsMargins(0,0,12,0); root.setSpacing(12); self.settings_widget.setFixedWidth(355); root.addWidget(self.settings_widget,0); root.addWidget(preview_box,1)
+        self.setup_content=QWidget(); self.body.addWidget(self.setup_content,1)
+        root=QHBoxLayout(self.setup_content); root.setContentsMargins(0,0,0,0); root.setSpacing(12); self.settings_widget.setFixedWidth(310); self.options_scroll=QScrollArea(); self.options_scroll.setObjectName('settingsScroll'); self.options_scroll.setWidgetResizable(True); self.options_scroll.setWidget(self.settings_widget); self.options_scroll.setMinimumWidth(330); root.addWidget(self.options_scroll,0); root.addWidget(preview_box,1); self.preview_box=preview_box
+        self.progress_content=QWidget(); self.progress_content.hide(); self.body.addWidget(self.progress_content,1)
+        progress=QVBoxLayout(self.progress_content); progress.setContentsMargins(16,12,16,12); progress.setSpacing(18)
+        heading=QLabel('프린터로 보내는 중'); heading.setObjectName('sectionTitle'); progress.addWidget(heading)
+        self.progress_detail=QLabel('프린터에 연결하고 있습니다…'); self.progress_detail.setWordWrap(True); self.progress_detail.setObjectName('mutedText'); progress.addWidget(self.progress_detail)
+        self.progress_bar=QProgressBar(); self.progress_bar.setRange(0,0); self.progress_bar.setTextVisible(False); self.progress_bar.setFixedHeight(6); progress.addWidget(self.progress_bar)
+        note=QLabel('데이터 전송이 끝나면 이 창은 자동으로 닫힙니다.'); note.setObjectName('mutedText'); note.setWordWrap(True); progress.addWidget(note)
+        cancel=QPushButton('전송 중단'); cancel.clicked.connect(self.cancel_job); progress.addWidget(cancel,0,Qt.AlignmentFlag.AlignRight)
         self.timer=QTimer(self); self.timer.setSingleShot(True); self.timer.setInterval(300); self.timer.timeout.connect(self.refresh)
         self.poll_timer=QTimer(self); self.poll_timer.setInterval(70); self.poll_timer.timeout.connect(self.poll); self.poll_timer.start()
         for box in [self.orientation,self.duplex,self.nup,self.paper]: box.currentIndexChanged.connect(self.schedule)
         for control in [*self.margins.values(),self.gap]: control.valueChanged.connect(self.schedule)
         self.pages.textChanged.connect(self.schedule); self.scale.valueChanged.connect(self.scale_edited); self.scale_mode.currentIndexChanged.connect(self.scale_changed); self.sheet.valueChanged.connect(self.schedule)
         self.start_job('devices',{})
+
+    def place(self):
+        if hasattr(self,'preview_box'):
+            self.preview_box.setVisible(self.owner.width()>=800)
+            self.settings_widget.setFixedWidth(310 if self.owner.width()>=800 else max(280,min(450,self.owner.width()-100)))
+        super().place()
 
     def settings(self):
         selected=parse_pages(self.pages.text(),len(self.doc.sizes))
@@ -305,15 +324,16 @@ class PrintWindow(QDialog):
                 if kind=='preview':
                     pix=QPixmap(message[1]); self.preview_label.setPixmap(pix.scaled(QSize(max(200,self.preview_area.viewport().width()-40),max(200,self.preview_area.viewport().height()-24)),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
                     self.state.setText('미리보기 · 선택한 용지 1면'); self.stop_job(); return
-                if kind=='progress': self.state.setText(f'인쇄 데이터 전송 중… {message[1]} / {message[2]} 면')
+                if kind=='progress':
+                    self.progress_detail.setText(f'인쇄 데이터 전송 중 · {message[1]} / {message[2]} 면'); self.progress_bar.setRange(0,message[2]); self.progress_bar.setValue(message[1])
                 if kind=='done':
-                    self.stop_job(); self.settings_widget.setEnabled(True); self.submit_button.setEnabled(True); self.state.setText('프린터로 전송했습니다.'); return
+                    self.accept(); return
                 if kind=='error':
-                    self.error.setText(message[1]); self.stop_job(); self.settings_widget.setEnabled(True); self.submit_button.setEnabled(True); return
+                    self.print_error(message[1]); return
         except (EOFError,OSError):
-            self.error.setText('인쇄 작업이 종료되었습니다. 다시 시도하세요.'); self.stop_job(); self.submit_button.setEnabled(True); return
+            self.print_error('인쇄 작업이 종료되었습니다. 다시 시도하세요.'); return
         if self.process and not self.process.is_alive():
-            self.error.setText('인쇄 작업이 비정상 종료되었습니다.'); self.stop_job(); self.submit_button.setEnabled(True)
+            self.print_error('인쇄 작업이 비정상 종료되었습니다.')
         elif self.kind=='devices' and time.monotonic()-self.started>12:
             self.stop_job(); self.state.setText('프린터 조회 시간이 초과되었습니다. 프린터 연결을 확인하세요.'); self.refresh()
 
@@ -321,11 +341,22 @@ class PrintWindow(QDialog):
         try:
             settings=self.settings()
             if not settings['device']: raise ValueError('사용 가능한 프린터가 없습니다.')
-            self.timer.stop(); self.state.setText('프린터에 연결 중…'); self.start_job('print',settings)
-        except Exception as exc: self.error.setText(str(exc))
+            self.timer.stop(); self.start_job('print',settings)
+            self.setup_content.hide(); self.progress_content.show(); self.close_button.hide(); self.progress_bar.setRange(0,0)
+            self.progress_detail.setText('프린터에 연결하고 있습니다…'); self.preferred=QSize(460,300); self.place()
+        except Exception as exc: self.print_error(str(exc))
+
+    def print_error(self,message):
+        self.stop_job(); self.progress_content.hide(); self.setup_content.show(); self.close_button.show()
+        self.preferred=QSize(1060,720); self.place(); self.error.setText(message)
+
+    def reject(self):
+        if self.kind=='print': return
+        super().reject()
 
     def cancel_job(self):
         printing=self.kind=='print'; self.stop_job(); self.timer.stop(); self.settings_widget.setEnabled(True); self.submit_button.setEnabled(True)
+        if printing: self.print_error('전송을 중단했습니다. 이미 전송된 작업은 Windows 인쇄 대기열에서 취소하세요.')
         self.state.setText('중단했습니다. 이미 전송된 작업은 Windows 인쇄 대기열에서 취소하세요.' if printing else '작업을 중단했습니다.')
 
     def done(self,result):
@@ -345,7 +376,7 @@ class Window(QMainWindow):
         self.doc=None; self.current=0; self.zoom=1.; self.fit_mode=None; self.last_flip=0
         self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=''; self.suppress_scroll=False
         self.setWindowFlags(Qt.WindowType.Window|Qt.WindowType.FramelessWindowHint)
-        self.setWindowTitle('PDFeather'); self.resize(1200,850); self.setMinimumSize(960,540); self.setAcceptDrops(True)
+        self.setWindowTitle('PDFeather'); self.resize(1200,850); self.setMinimumSize(540,360); self.setAcceptDrops(True)
         shell=QWidget(); shell.setObjectName('shell'); root=QVBoxLayout(shell); root.setSpacing(0); root.setContentsMargins(0,0,0,0)
         self.titlebar=TitleBar(self); root.addWidget(self.titlebar)
         self.update_bar=QWidget(); self.update_bar.setObjectName('captureBar'); update_row=QHBoxLayout(self.update_bar); update_row.setContentsMargins(12,6,12,6)
@@ -386,20 +417,21 @@ class Window(QMainWindow):
         self.canvas=Canvas(self); self.scroll.setWidget(self.canvas); self.notice.setParent(self.scroll.viewport())
         self.split=QSplitter(); self.split.setHandleWidth(1); self.split.addWidget(self.thumbs); self.split.addWidget(self.scroll); self.split.setSizes([164,1036]); root.addWidget(self.split,1)
         footer=QWidget(); footer.setObjectName('footer'); bottom=QHBoxLayout(footer); bottom.setContentsMargins(10,4,7,4)
-        left=QWidget(); left.setMinimumWidth(360); bottom.addWidget(left,1)
+        left=QWidget(); left.setMinimumWidth(0); bottom.addWidget(left,1); self.footer_spacer=left; self.footer_layout=bottom
         nav=QHBoxLayout(); nav.setSpacing(4)
         nav.addWidget(tool('prev','이전 페이지 · PageUp',lambda:self.turn(-1)))
         self.page=QSpinBox(); self.page.setRange(1,1); self.page.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons); self.page.setAlignment(Qt.AlignmentFlag.AlignCenter); self.page.setFixedWidth(58); self.page.valueChanged.connect(lambda v:self.go(v-1)); nav.addWidget(self.page)
         self.total=QLabel('/ 0'); nav.addWidget(self.total); nav.addWidget(tool('next','다음 페이지 · PageDown',lambda:self.turn(1)))
-        bottom.addLayout(nav)
+        nav_widget=QWidget(); nav_widget.setLayout(nav); bottom.addWidget(nav_widget,0,Qt.AlignmentFlag.AlignCenter)
         right=QHBoxLayout(); right.setSpacing(2); right.addStretch(); right.addWidget(self.mode); right.addSpacing(8); right.addWidget(tool('minus','축소 · Ctrl+−',lambda:self.set_zoom(self.zoom/1.15)))
         self.zoom_box=QSpinBox(); self.zoom_box.setRange(10,1000); self.zoom_box.setValue(100); self.zoom_box.setSuffix('%'); self.zoom_box.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons); self.zoom_box.setAlignment(Qt.AlignmentFlag.AlignCenter); self.zoom_box.setFixedWidth(66); self.zoom_box.valueChanged.connect(lambda v:self.set_zoom(v/100)); right.addWidget(self.zoom_box)
-        right.addWidget(tool('plus','확대 · Ctrl++',lambda:self.set_zoom(self.zoom*1.15))); right.addSpacing(6); right.addWidget(tool('fit','쪽 맞추기 · Ctrl+0',lambda:self.fit('page'))); right.addWidget(tool('width','폭 맞추기 · Ctrl+1',lambda:self.fit('width'))); right.addWidget(QSizeGrip(self))
-        rw=QWidget(); rw.setMinimumWidth(360); rw.setLayout(right); right.setContentsMargins(0,0,0,0); bottom.addWidget(rw,1)
+        right.addWidget(tool('plus','확대 · Ctrl++',lambda:self.set_zoom(self.zoom*1.15))); right.addSpacing(6); right.addWidget(tool('fit','쪽 맞추기 · Ctrl+0',lambda:self.fit('page'))); right.addWidget(tool('width','폭 맞추기 · Ctrl+1',lambda:self.fit('width')))
+        rw=QWidget(); rw.setMinimumWidth(0); rw.setLayout(right); right.setContentsMargins(0,0,0,0); bottom.addWidget(rw,1)
         root.addWidget(footer)
-        self.setCentralWidget(shell)
-        self.settings_dialog=QDialog(self); self.settings_dialog.setWindowTitle('설정'); self.settings_dialog.resize(850,650); self.settings_dialog.setMinimumSize(760,550)
-        settings_layout=QVBoxLayout(self.settings_dialog); settings_layout.setContentsMargins(0,0,0,0)
+        root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        shell.setMinimumSize(0,0); self.setCentralWidget(shell)
+        self.settings_dialog=PopupSheet(self,'설정',QSize(860,660))
+        settings_layout=self.settings_dialog.body
         self.settings_panel=SettingsPanel(self.prefs); self.settings_panel.changed.connect(self.preference_changed); settings_layout.addWidget(self.settings_panel)
         actions=QHBoxLayout(); actions.setContentsMargins(18,6,18,12); actions.addStretch(); close=QPushButton('닫기'); close.clicked.connect(self.settings_dialog.close); actions.addWidget(close); settings_layout.addLayout(actions)
         self.thumbs.setVisible(self.prefs.get('show_thumbnails'))
@@ -547,16 +579,16 @@ class Window(QMainWindow):
             else: self.fit(value)
 
     def eventFilter(self,obj,event):
+        if obj is self and event.type()==QEvent.Type.Resize and hasattr(self,'footer_layout'):
+            compact=self.width()<850
+            self.footer_spacer.setVisible(not compact)
+            self.footer_layout.setDirection(QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight)
         if event.type()==QEvent.Type.DevicePixelRatioChange and obj==self:
             self.titlebar.brand.setPixmap(logo_pixmap(16,self.theme_name=='dark',self.devicePixelRatioF())); self.canvas.update()
         if event.type()==QEvent.Type.Resize and obj==self.scroll.viewport():
             QTimer.singleShot(0,self.refit)
         if event.type()==QEvent.Type.MouseButtonPress and event.button()==Qt.MouseButton.LeftButton and not self.isMaximized() and isinstance(obj,QWidget) and obj.window()==self:
-            pt=self.mapFromGlobal(event.globalPosition().toPoint()); edges=Qt.Edge(0)
-            if pt.x()<5: edges|=Qt.Edge.LeftEdge
-            if pt.x()>self.width()-5: edges|=Qt.Edge.RightEdge
-            if pt.y()<5: edges|=Qt.Edge.TopEdge
-            if pt.y()>self.height()-5: edges|=Qt.Edge.BottomEdge
+            pt=self.mapFromGlobal(event.globalPosition().toPoint()); edges=resize_edges(pt,self.size())
             if edges and self.windowHandle() and self.windowHandle().startSystemResize(edges): return True
         if event.type()==QEvent.Type.Wheel and QApplication.activeModalWidget() is None and obj==self.scroll.viewport():
             delta=event.angleDelta().y() or event.pixelDelta().y()
@@ -858,8 +890,12 @@ class Window(QMainWindow):
 
     def print_document(self):
         if self.doc:
-            try: PrintWindow(self.doc, self).exec()
+            dialog=None
+            try:
+                dialog=PrintWindow(self.doc,self); dialog.exec()
             except Exception as exc: QMessageBox.warning(self, '인쇄 오류', str(exc))
+            finally:
+                if dialog is not None: dialog.deleteLater()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and any(u.isLocalFile() and u.toLocalFile().lower().endswith('.pdf') for u in event.mimeData().urls()): event.acceptProposedAction()

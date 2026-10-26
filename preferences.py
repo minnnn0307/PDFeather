@@ -77,10 +77,10 @@ class SettingsPanel(QWidget):
             content=QWidget(); layout=QVBoxLayout(content); layout.setContentsMargins(26,22,26,22); layout.setSpacing(18)
             label=QLabel(title); label.setObjectName('sectionTitle'); layout.addWidget(label)
             hint=QLabel(description); hint.setObjectName('mutedText'); hint.setWordWrap(True); layout.addWidget(hint)
-            scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(content); self.stack.addWidget(scroll)
+            scroll=QScrollArea(); scroll.setObjectName('settingsScroll'); scroll.setWidgetResizable(True); scroll.setWidget(content); self.stack.addWidget(scroll)
             return layout
         def group(layout,title):
-            box=QGroupBox(title); form=QFormLayout(box); form.setVerticalSpacing(13); form.setHorizontalSpacing(20); layout.addWidget(box); return form
+            box=QGroupBox(title); form=QFormLayout(box); form.setVerticalSpacing(16); form.setHorizontalSpacing(20); layout.addWidget(box); return form
         general=page('일반','화면 테마와 앱 동작을 설정합니다. 변경 사항은 자동으로 저장됩니다.')
         appearance=group(general,'화면')
         self.combo(appearance,'테마','theme',[('다크 모드','dark'),('라이트 모드','light')])

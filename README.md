@@ -2,6 +2,11 @@
 
 오프라인 Windows 10/11 x64 PDF 리더. Python을 설치하지 않은 PC에서도 설치본 실행이 가능합니다. 문서 열기·표시·복사·캡처·인쇄는 인터넷 없이 동작합니다. 업데이트 확인을 켜면 GitHub Releases의 공개 버전 정보만 조회하며, 설치 파일을 자동으로 내려받거나 실행하지 않습니다.
 
+## 1.8.0 변경
+
+- 보이지 않는 네 모서리의 크기 조절과 540×360 최소 창 크기, 작은 창의 두 줄 탐색바.
+- 설정·인쇄 중앙 인앱 팝업, 전송 중 진행 표시와 완료 시 자동 닫기.
+
 ## 1.7.0 변경
 
 - 상단바를 화면 위쪽 끝에 끌어 놓아 최대화, 최대화 상태에서 끌어내려 이전 크기로 복원.
@@ -109,7 +114,7 @@ git remote add origin https://github.com/minnnn0307/PDFeather.git
 git push -u origin main
 ```
 
-2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.7.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.7.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
+2. GitHub Actions의 **Windows installer** 빌드가 완료되면 **Artifacts → PDFeather-1.8.0-Windows-x64**에서 압축 파일을 내려받습니다. `release/PDFeather-1.8.0-Setup.exe`가 설치 프로그램입니다. `dist/PDFeather` 폴더 전체는 무설치 실행용입니다.
 3. 버전 배포: `app_meta.VERSION`을 올리고 RELEASE_NOTES.md를 갱신한 뒤 main에 push합니다. Windows 검사·설치 검증이 통과하면 `v<VERSION>` GitHub Release와 설치 EXE가 자동 게시됩니다. 이미 배포된 버전의 코드를 바꿀 때는 반드시 버전을 올립니다. 태그로 실행할 경우 태그는 `app_meta.VERSION`과 일치해야 합니다.
 
 서명 인증서는 포함되어 있지 않습니다. 서명 없는 설치 EXE에는 Windows 보안 경고가 표시될 수 있습니다. GitHub 저장소: https://github.com/minnnn0307/PDFeather

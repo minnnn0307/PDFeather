@@ -58,12 +58,27 @@ QToolBox::tab:selected {{ background:{c['selected']}; font-weight:600; }}
 #sectionHeader:checked {{ background:{c['selected']}; font-weight:600; }}
 #printSection {{ background:{c['window']}; }}
 #primaryButton {{ background:#187f75; color:white; font-weight:600; padding:12px; }}
+#popupCard {{ background:{c['window']}; border:1px solid {c['line']}; border-radius:18px; }}
+#popupTitle {{ font-size:17px; font-weight:600; padding-left:6px; }}
+#popupClose {{ background:transparent; color:{c['muted']}; font-size:22px; padding:0; border-radius:16px; }}
+#popupClose:hover {{ background:{c['hover']}; }}
+#categoryChip {{ background:{c['bar']}; border:1px solid {c['line']}; border-radius:8px; padding:9px 6px; }}
+#categoryChip:checked {{ background:{c['selected']}; border-color:#259f90; }}
+#cardHeading {{ font-size:14px; font-weight:600; }}
+#settingsScroll {{ background:{c['window']}; border:0; }}
+#categoryNav {{ background:{c['bar']}; border-radius:12px; padding:12px 0; }}
+#categoryNav::item {{ padding:12px 14px; margin:3px 10px; border-radius:8px; }}
+QGroupBox {{ background:{c['bar']}; border:0; border-radius:12px; margin-top:20px; padding:18px; }}
+QGroupBox::title {{ color:{c['muted']}; left:4px; font-size:11px; font-weight:600; }}
+#sectionHeader {{ border:0; border-radius:8px; padding:10px 12px; }}
+QProgressBar {{ background:{c['line']}; border:0; border-radius:3px; }}
+QProgressBar::chunk {{ background:#259f90; border-radius:3px; }}
 QWidget:disabled {{ color:{c['muted']}; }}
 QTabWidget::pane {{ border:0; }}
 QTabBar::tab {{ background:{c['title']}; color:{c['muted']}; padding:9px 25px; border:0; }}
 QTabBar::tab:selected {{ background:{c['bar']}; color:{c['text']}; border-bottom:2px solid #2ca99a; }}
-QGroupBox {{ border:1px solid {c['line']}; border-radius:8px; margin-top:16px; padding:16px; }}
-QGroupBox::title {{ subcontrol-origin:margin; left:14px; padding:0 5px; }}
+
+QGroupBox::title {{ subcontrol-origin:margin; padding:0 5px; }}
 QCheckBox {{ spacing:8px; padding:4px 0; }}
 QCheckBox::indicator {{ width:16px; height:16px; }}
 #errorText {{ color:{c['error']}; }}
