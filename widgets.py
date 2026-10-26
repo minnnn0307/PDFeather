@@ -52,10 +52,10 @@ def icon(name):
         if name=='multi': line(8,10,16,10); line(8,14,16,14)
     elif name=='settings':
         gear=QPainterPath()
-        for tooth in range(8):
-            for offset,radius in [(-22.5,7.2),(-12,7.2),(-12,9.5),(12,9.5),(12,7.2),(22.5,7.2)]:
-                angle=math.radians(tooth*45+offset); point=QPointF(12+math.cos(angle)*radius,12+math.sin(angle)*radius)
-                gear.moveTo(point) if tooth==0 and offset==-22.5 else gear.lineTo(point)
+        for tooth in range(6):
+            for offset,radius in [(-30,7.2),(-15,7.2),(-15,9.5),(15,9.5),(15,7.2),(30,7.2)]:
+                angle=math.radians(tooth*60+offset); point=QPointF(12+math.cos(angle)*radius,12+math.sin(angle)*radius)
+                gear.moveTo(point) if tooth==0 and offset==-30 else gear.lineTo(point)
         gear.closeSubpath(); p.drawPath(gear); p.drawEllipse(QRectF(8.7,8.7,6.6,6.6))
     elif name=='minus': line(6,12,18,12)
     elif name=='plus': line(6,12,18,12); line(12,6,12,18)

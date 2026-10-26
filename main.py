@@ -362,7 +362,7 @@ class Window(QMainWindow):
             button=tool(name,label,lambda checked=False,value=key:self.set_selection_tool(value)); button.setCheckable(True); self.selection_group.addButton(button); self.selection_buttons[key]=button; bar.addWidget(button)
         self.selection_buttons['pointer'].setChecked(True)
         self.mode=ViewModePicker(); self.mode.addItems(['단일','단일 스크롤','2페이지','2페이지 스크롤']); self.mode.setCurrentIndex(self.prefs.get('default_mode')); self.mode.currentIndexChanged.connect(self.change_mode)
-        bar.addStretch(); bar.addWidget(tool('info','PDF 정보',self.info)); bar.addWidget(tool('settings','설정',self.show_settings)); bar.addWidget(tool('help','도움말 · F1',self.help))
+        bar.addStretch(); bar.addWidget(tool('info','PDF 정보',self.info)); bar.addWidget(tool('settings','설정',self.show_settings))
         root.addWidget(toolbar)
         self.capture_bar=QWidget(); self.capture_bar.setObjectName('captureBar'); capture_row=QHBoxLayout(self.capture_bar); capture_row.setContentsMargins(12,5,12,5); capture_row.setSpacing(8)
         self.capture_status=QLabel(''); capture_row.addWidget(self.capture_status,1)
@@ -672,7 +672,7 @@ class Window(QMainWindow):
         self.canvas.update()
 
     def help(self):
-        QMessageBox.information(self,'PDFeather · 도움말','Ctrl+O  파일 열기\nCtrl+P  인쇄\nCtrl+F  찾기\nCtrl+C  선택한 텍스트 / 다중캡처 복사\nCtrl+W  문서 탭 닫기\nCtrl+Tab / Ctrl+Shift+Tab  다음·이전 탭\nCtrl+,  설정\nEnter / F3  다음 결과\nShift+Enter / Shift+F3  이전 결과\nEsc  찾기 닫기\nCtrl+휠  포인터 기준 확대·축소\nCtrl++ / Ctrl+−  확대·축소\nCtrl+0  쪽 맞추기\nCtrl+1  너비 맞추기\nPageUp / PageDown  이전·다음 페이지\n\n일반 포인터: 선택·캡처 없이 문서 보기\n손 도구: 마우스를 누르고 끌어 화면 이동\n텍스트 선택: 드래그 후 Ctrl+C 또는 우클릭 복사\n영역 캡처: 드래그 후 이미지가 바로 복사됩니다.\n다중캡처: 드래그 → 스크롤 → 다시 드래그 → 이어붙여 복사\n마지막 취소 / 초기화 / 미리보기 사용 가능\n\n단일 / 2페이지 보기: 맨 아래에서 휠을 더 내리면 다음 페이지, 맨 위에서 올리면 이전 페이지\n제목 표시줄: 끌어서 이동, 두 번 클릭으로 최대화 / 복원\n창 가장자리와 오른쪽 아래에서 크기 조절')
+        self.settings_panel.categories.setCurrentRow(self.settings_panel.help_index); self.show_settings()
 
     def receive_external_files(self,paths):
         self.external_pending.extend(paths); self.external_activate=True; self.external_timer.start(0)
@@ -712,6 +712,7 @@ class Window(QMainWindow):
                 new=Document(path,password)
         except Exception as exc: QMessageBox.warning(self,'열기 실패',str(exc)); return
         state=DocumentTab(new,TextSelection(new),mode=self.prefs.get('default_mode'),fit_mode=None if self.prefs.get('default_fit')=='actual' else self.prefs.get('default_fit'))
+        self.prefs.restore_document(state)
         self.file_tabs.blockSignals(True); index=self.file_tabs.addTab(Path(path).name); self.file_tabs.setTabData(index,state); self.file_tabs.setTabToolTip(index,path); self.file_tabs.setCurrentIndex(index); self.file_tabs.blockSignals(False)
         self.titlebar.sync_tabs(); self.activate_tab(index)
 
@@ -765,6 +766,8 @@ class Window(QMainWindow):
         state=self.file_tabs.tabData(index)
         if state is None: return
         active=state is self.active_tab
+        if active: self.save_tab_state()
+        self.prefs.save_document(state)
         self.file_tabs.blockSignals(True); self.file_tabs.removeTab(index); self.file_tabs.blockSignals(False)
         if active:
             self.active_tab=None; self.doc=None; self.selection=None; self.canvas.cancel_drag(); self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
@@ -866,6 +869,8 @@ class Window(QMainWindow):
             if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile())
 
     def closeEvent(self, event):
+        self.save_tab_state()
+        for i in range(self.file_tabs.count()): self.prefs.save_document(self.file_tabs.tabData(i))
         if self.prefs.get('remember_geometry'): self.prefs.storage.setValue('window_geometry',self.saveGeometry()); self.prefs.storage.sync()
         self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
         QApplication.instance().removeEventFilter(self)

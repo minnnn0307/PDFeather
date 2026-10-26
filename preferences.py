@@ -1,10 +1,12 @@
-from PySide6.QtCore import QSettings, Signal, QLocale
+import json,hashlib,os,time,math
+from pathlib import Path
+from PySide6.QtCore import QSettings, Signal, QLocale, Qt
 from app_meta import VERSION,publisher_for_language
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QComboBox,QCheckBox,QSpinBox,
     QDoubleSpinBox,QGroupBox,QLabel,QPushButton,QGridLayout,QHBoxLayout,QListWidget,QStackedWidget,QScrollArea)
 
 DEFAULTS=dict(auto_update=True,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,
-    edge_flip=True,remember_geometry=True,print_paper='A4',print_duplex=0,
+    edge_flip=True,remember_document=True,remember_geometry=True,print_paper='A4',print_duplex=0,
     margin_left=10.,margin_top=10.,margin_right=10.,margin_bottom=10.,print_gap=2.)
 
 
@@ -28,6 +30,38 @@ class Preferences:
     def set(self,key,value):
         self.storage.setValue(key,value); self.storage.sync()
 
+    def document_key(self,path):
+        return 'document_positions/'+hashlib.sha256(os.path.normcase(str(Path(path).resolve())).encode('utf-8')).hexdigest()
+
+    def save_document(self,state):
+        if not self.get('remember_document'): return
+        try:
+            stat=Path(state.doc.path).stat()
+            data=dict(size=stat.st_size,mtime=stat.st_mtime_ns,current=state.current,zoom=state.zoom,
+                mode=state.mode,x=state.scroll_x,y=state.scroll_y,saved=time.time())
+            self.storage.setValue(self.document_key(state.doc.path),json.dumps(data))
+            keys=[k for k in self.storage.allKeys() if k.startswith('document_positions/')]
+            if len(keys)>200:
+                def age(key):
+                    try: return json.loads(self.storage.value(key))['saved']
+                    except (ValueError,TypeError,KeyError): return 0
+                for key in sorted(keys,key=age)[:-200]: self.storage.remove(key)
+            self.storage.sync()
+        except (OSError,ValueError,TypeError): pass
+
+    def restore_document(self,state):
+        if not self.get('remember_document'): return
+        try:
+            data=json.loads(self.storage.value(self.document_key(state.doc.path),'')); stat=Path(state.doc.path).stat()
+            zoom=float(data['zoom']); mode=int(data['mode']); current=int(data['current'])
+            if (data['size'],data['mtime'])!=(stat.st_size,stat.st_mtime_ns): return
+            if not math.isfinite(zoom) or not .1<=zoom<=5 or not 0<=mode<=3 or not 0<=current<len(state.doc.sizes): return
+            x,y=int(data['x']),int(data['y'])
+            if not 0<=x<=2147483647 or not 0<=y<=2147483647: return
+            state.current=current; state.zoom=zoom; state.mode=mode; state.fit_mode=None
+            state.scroll_x=x; state.scroll_y=y; state.initialized=True
+        except (OSError,ValueError,TypeError,KeyError,OverflowError): pass
+
 
 class SettingsPanel(QWidget):
     changed=Signal(str,object)
@@ -37,7 +71,7 @@ class SettingsPanel(QWidget):
         super().__init__(parent); self.prefs=prefs; self.controls={}
         root=QHBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         self.categories=QListWidget(); self.categories.setObjectName('categoryNav'); self.categories.setFixedWidth(158)
-        self.categories.addItems(['일반','문서 표시','인쇄 기본값','정보']); root.addWidget(self.categories)
+        self.categories.addItems(['일반','문서 표시','인쇄 기본값','도움말','정보']); root.addWidget(self.categories)
         self.stack=QStackedWidget(); root.addWidget(self.stack,1)
         def page(title,description):
             content=QWidget(); layout=QVBoxLayout(content); layout.setContentsMargins(26,22,26,22); layout.setSpacing(18)
@@ -63,6 +97,9 @@ class SettingsPanel(QWidget):
         view=group(reading,'기본 보기')
         self.combo(view,'보기 방식','default_mode',[(v,i) for i,v in enumerate(['단일','단일 스크롤','2페이지','2페이지 스크롤'])])
         self.combo(view,'파일을 열 때 배율','default_fit',[('쪽 맞추기','page'),('너비 맞추기','width'),('실제 크기 (100%)','actual')])
+        memory=group(reading,'이어서 읽기')
+        self.check(memory,'문서별 마지막 위치와 배율 기억','remember_document')
+        hint=QLabel('같은 파일을 다시 열면 마지막 보기 방식·위치·배율을 복원합니다. 끄면 기본 보기로 열립니다. 최대 200개 문서를 이 컴퓨터에 기억합니다.'); hint.setWordWrap(True); hint.setObjectName('mutedText'); memory.addRow(hint)
         navigation=group(reading,'마우스 및 페이지 이동')
         step=QSpinBox(); step.setRange(5,50); step.setSuffix('%'); self.bind(navigation,'휠 확대·축소 단계','wheel_step',step)
         self.check(navigation,'페이지 끝에서 휠로 이전·다음 페이지 넘기기','edge_flip'); reading.addStretch()
@@ -74,6 +111,9 @@ class SettingsPanel(QWidget):
         for label,key in [('왼쪽','margin_left'),('오른쪽','margin_right'),('위','margin_top'),('아래','margin_bottom')]: self.bind(spacing,label,key,self.mm())
         self.bind(spacing,'모아찍기 간격','print_gap',self.mm())
         hint=QLabel('0 mm 여백 출력은 프린터의 무테 인쇄 지원이 필요합니다.'); hint.setWordWrap(True); hint.setObjectName('mutedText'); printing_page.addWidget(hint); printing_page.addStretch()
+        self.help_index=self.stack.count()
+        help_page=page('도움말','단축키와 문서 도구 사용 방법입니다. F1로 바로 열 수 있습니다.')
+        guide=QLabel('Ctrl+O  파일 열기\nCtrl+P  인쇄\nCtrl+F  찾기\nCtrl+C  선택한 텍스트 / 다중캡처 복사\nCtrl+W  문서 탭 닫기\nCtrl+Tab / Ctrl+Shift+Tab  다음·이전 탭\nCtrl+,  설정\nEnter / F3  다음 결과\nShift+Enter / Shift+F3  이전 결과\nEsc  찾기 닫기\nCtrl+휠  포인터 기준 확대·축소\nCtrl++ / Ctrl+−  확대·축소\nCtrl+0  쪽 맞추기\nCtrl+1  너비 맞추기\nPageUp / PageDown  이전·다음 페이지\n\n일반 포인터: 선택·캡처 없이 문서 보기\n손 도구: 마우스를 누르고 끌어 화면 이동\n텍스트 선택: 드래그 후 Ctrl+C 또는 우클릭 복사\n영역 캡처: 드래그 후 이미지가 바로 복사됩니다.\n다중캡처: 드래그 → 스크롤 → 다시 드래그 → 이어붙여 복사\n마지막 취소 / 초기화 / 미리보기 사용 가능\n\n단일 / 2페이지 보기: 맨 아래에서 휠을 더 내리면 다음 페이지, 맨 위에서 올리면 이전 페이지\n제목 표시줄: 끌어서 이동, 두 번 클릭으로 최대화 / 복원\n창 가장자리와 오른쪽 아래에서 크기 조절'); guide.setWordWrap(True); guide.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse); help_page.addWidget(guide); help_page.addStretch()
         about=page('PDFeather','가볍고 간결한 오프라인 PDF 리더')
         info=group(about,'프로그램 정보'); info.addRow('버전',QLabel(VERSION)); info.addRow('게시자',QLabel(publisher_for_language((QLocale.system().uiLanguages() or [QLocale.system().name()])[0]))); info.addRow('네트워크',QLabel('문서 열기와 인쇄에 인터넷 연결이 필요하지 않습니다.'))
         updates=group(about,'업데이트 확인')
