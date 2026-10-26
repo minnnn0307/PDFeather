@@ -6,7 +6,7 @@ from contextlib import ExitStack
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt,QSettings,QPoint,QPointF,QRectF
 from PySide6.QtGui import QImage,QColor
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication,QDialog
 from PySide6.QtTest import QTest
 from main import Window
 from preferences import Preferences
@@ -48,6 +48,7 @@ class InteractionTests(unittest.TestCase):
                 try: l,b,r,t=text.get_charbox(index)
                 finally: text.close(); page.close()
                 return QPoint(round(rect.x()+(l+r)/2*window.zoom),round(rect.y()+(842-(b+t)/2)*window.zoom))
+            window.set_selection_tool('text')
             start,end=char_point(0),char_point(3)
             self.assertEqual(window.selection.hit(QPointF(start),window.canvas.rects,True),(0,0))
             QTest.mousePress(window.canvas,Qt.MouseButton.LeftButton,pos=start); QTest.mouseMove(window.canvas,end); QTest.mouseRelease(window.canvas,Qt.MouseButton.LeftButton,pos=end)
@@ -75,6 +76,41 @@ class InteractionTests(unittest.TestCase):
             window.copy_captures(); copied=QApplication.clipboard().image()
             self.assertEqual(copied.width(),round(220*window.canvas.devicePixelRatioF())); self.assertEqual(copied.height(),round(160*window.canvas.devicePixelRatioF()))
             window.undo_capture(); self.assertEqual(len(window.captures.items),1); window.clear_captures(); self.assertFalse(window.captures.items)
+            window.close()
+
+    def test_pointer_hand_and_integrated_title_tabs(self):
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtCore import QEvent
+        with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
+            source=Path(temp)/'input.pdf'; create_pdf(source,4)
+            window=make_window(temp); cleanup.callback(window.close); window.open(str(source)); window.show(); settle()
+            self.assertIs(window.file_tabs.parentWidget(),window.titlebar)
+            self.assertEqual(window.titlebar.title.text(),'PDFeather')
+            window.set_selection_tool('pointer'); start=QPoint(400,200); end=QPoint(450,260)
+            QTest.mousePress(window.canvas,Qt.MouseButton.LeftButton,pos=start); QTest.mouseMove(window.canvas,end); QTest.mouseRelease(window.canvas,Qt.MouseButton.LeftButton,pos=end)
+            self.assertIsNone(window.selection.anchor); self.assertFalse(window.captures.items); self.assertIsNone(window.canvas.capture_rect)
+            window.set_zoom(2); settle(); window.scroll.verticalScrollBar().setValue(300); window.scroll.horizontalScrollBar().setValue(100)
+            window.set_selection_tool('hand')
+            anchor=QPointF(400,400); global_anchor=QPointF(window.canvas.mapToGlobal(QPoint(400,400)))
+            def send(kind,local,global_point,button,buttons):
+                QApplication.sendEvent(window.canvas,QMouseEvent(kind,local,global_point,button,buttons,Qt.KeyboardModifier.NoModifier))
+            send(QEvent.Type.MouseButtonPress,anchor,global_anchor,Qt.MouseButton.LeftButton,Qt.MouseButton.LeftButton)
+            send(QEvent.Type.MouseMove,anchor-QPointF(40,60),global_anchor-QPointF(40,60),Qt.MouseButton.NoButton,Qt.MouseButton.LeftButton)
+            send(QEvent.Type.MouseButtonRelease,anchor-QPointF(40,60),global_anchor-QPointF(40,60),Qt.MouseButton.LeftButton,Qt.MouseButton.NoButton)
+            self.assertEqual(window.scroll.verticalScrollBar().value(),360); self.assertEqual(window.scroll.horizontalScrollBar().value(),140)
+            self.assertFalse(window.captures.items); self.assertEqual(window.canvas.cursor().shape(),Qt.CursorShape.OpenHandCursor)
+            changes=[]; window.mode.currentIndexChanged.connect(changes.append); window.mode.actions[2].trigger(); self.assertEqual(window.mode.currentIndex(),2); self.assertEqual(changes[-1],2)
+            close=window.file_tabs.tabButton(0,window.file_tabs.ButtonPosition.RightSide); QTest.mouseClick(close,Qt.MouseButton.LeftButton); settle(); self.assertIsNone(window.doc)
+            window.close()
+
+    def test_external_files_wait_for_modal_and_reuse_window(self):
+        with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
+            first=Path(temp)/'first.pdf'; second=Path(temp)/'second.pdf'; create_pdf(first,2); create_pdf(second,3)
+            window=make_window(temp); cleanup.callback(window.close); window.open(str(first)); window.show(); settle()
+            dialog=QDialog(window); dialog.setModal(True); dialog.show(); cleanup.callback(dialog.close); settle()
+            window.receive_external_files([str(second)]); settle(); self.assertEqual(window.file_tabs.count(),1)
+            dialog.close(); QTest.qWait(200); settle(); self.assertEqual(window.file_tabs.count(),2); self.assertEqual(Path(window.doc.path).name,'second.pdf')
+            window.receive_external_files([str(second)]); settle(); self.assertEqual(window.file_tabs.count(),2)
             window.close()
 
     def test_tabs_restore_view_search_selection_and_release_cache(self):

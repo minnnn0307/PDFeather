@@ -62,6 +62,11 @@ jobs:
             throw 'Frozen application smoke check timed out'
           }
           if (!(Test-Path $result) -or (Get-Content $result -Raw) -ne 'ok') { throw 'Frozen application smoke check failed' }
+      - name: Verify frozen single-instance forwarding
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/verify_instance.py dist/PDFeather/PDFeather.exe
       - name: Installer
         shell: pwsh
         run: |
@@ -81,6 +86,11 @@ jobs:
               $expected = if ($language -eq 'korean') { '조민혁' } else { 'Minhyeok Cho' }
               if ($properties.Publisher -ne $expected) { throw "Publisher mismatch: $language" }
               if ($properties.DisplayName -ne 'PDFeather' -or $properties.DisplayVersion -ne $env:APP_VERSION) { throw 'Installed application identity mismatch' }
+              $command = (Get-Item 'HKCU:\Software\Classes\PDFeather.PDF\shell\open\command').GetValue('')
+              $expectedCommand = '"' + (Join-Path $destination 'PDFeather.exe') + '" "%1"'
+              if ($command -ne $expectedCommand) { throw 'PDF association command mismatch' }
+              $openWith = Get-Item 'HKCU:\Software\Classes\.pdf\OpenWithProgids'
+              if ('PDFeather.PDF' -notin $openWith.GetValueNames()) { throw 'PDF Open With registration is missing' }
             } finally {
               $uninstall = Start-Process -FilePath (Join-Path $destination 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
               if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }

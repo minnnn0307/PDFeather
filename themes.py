@@ -37,7 +37,17 @@ QToolButton:checked {{ background:{c['selected']}; border:1px solid {c['line']};
 #captureBar {{ background:{c['bar']}; border-bottom:1px solid {c['line']}; }}
 #captureBar QPushButton {{ padding:6px 10px; }}
 #noticeText {{ background:{c['title']}; color:{c['text']}; border:1px solid {c['line']}; border-radius:6px; padding:9px 14px; }}
-#documentTabs {{ background:{c['title']}; }}
+#documentTabs {{ background:transparent; border:0; }}
+#documentTabs::tab {{ background:transparent; color:{c['muted']}; padding:6px 12px 6px 14px; margin:4px 3px 0 0; border:0; border-top-left-radius:7px; border-top-right-radius:7px; }}
+#documentTabs::tab:selected {{ background:{c['bar']}; color:{c['text']}; border-bottom:2px solid #2ca99a; }}
+#documentTabs::tab:hover {{ background:{c['hover']}; }}
+#tabClose {{ border:0; border-radius:4px; }}
+#viewModePicker {{ background:{c['input']}; border:1px solid {c['line']}; border-radius:8px; padding:3px 10px; text-align:left; }}
+#viewModePicker:hover {{ background:{c['hover']}; }}
+#viewModePicker::menu-indicator {{ subcontrol-position:right center; subcontrol-origin:padding; width:9px; height:9px; right:5px; }}
+#viewModeMenu {{ background:{c['window']}; border:1px solid {c['line']}; padding:6px; }}
+#viewModeMenu::item {{ padding:9px 32px 9px 28px; border-radius:5px; }}
+#viewModeMenu::item:selected {{ background:{c['selected']}; }}
 #sectionTitle {{ font-size:21px; font-weight:600; }}
 #categoryNav {{ background:{c['title']}; padding-top:14px; }}
 #categoryNav::item {{ padding:13px 16px; margin:3px 8px; border-radius:5px; }}

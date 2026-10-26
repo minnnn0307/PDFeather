@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QScrollArea,
     QListWidget, QListWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QInputDialog, QFrame, QSizeGrip, QDoubleSpinBox, QGridLayout, QToolButton, QTabBar, QButtonGroup)
 from layout import parse_pages, grid, placement, print_cells
-from widgets import TitleBar, ThumbnailDelegate, tool, set_theme, icon, CategorySections
+from widgets import TitleBar, ThumbnailDelegate, tool, set_theme, icon, CategorySections, ViewModePicker
 from preferences import Preferences, SettingsPanel
 from branding import application_icon, logo_pixmap
 from themes import PALETTES, stylesheet, apply_palette
@@ -26,6 +26,7 @@ from tabs import DocumentTab
 from interaction import CanvasInteraction
 from app_meta import NAME,VERSION
 from updates import UpdateChecker
+from instance import SingleInstance
 
 
 STYLE = stylesheet('dark')
@@ -338,7 +339,9 @@ class Window(QMainWindow):
         self.enable_update_checks=enable_updates and not bool(QApplication.instance().property('offlineTests')); self.update_info=None; self.update_manual=False
         self.theme_name=self.prefs.get('theme'); self.theme=PALETTES[self.theme_name]
         set_theme(self.theme_name)
-        self.active_tab=None; self.restoring_tab=False; self.selection=None; self.selection_tool='text'; self.captures=CaptureCollection()
+        self.external_pending=[]; self.external_draining=False; self.external_activate=False
+        self.external_timer=QTimer(self); self.external_timer.setSingleShot(True); self.external_timer.timeout.connect(self.drain_external_files)
+        self.active_tab=None; self.restoring_tab=False; self.selection=None; self.selection_tool='pointer'; self.captures=CaptureCollection()
         self.doc=None; self.current=0; self.zoom=1.; self.fit_mode=None; self.last_flip=0
         self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=''; self.suppress_scroll=False
         self.setWindowFlags(Qt.WindowType.Window|Qt.WindowType.FramelessWindowHint)
@@ -349,16 +352,16 @@ class Window(QMainWindow):
         self.update_label=QLabel(); update_row.addWidget(self.update_label,1)
         release=QPushButton('업데이트 보기'); release.clicked.connect(self.open_update_page); update_row.addWidget(release)
         dismiss=QPushButton('닫기'); dismiss.clicked.connect(self.dismiss_update); update_row.addWidget(dismiss); self.update_bar.hide(); root.addWidget(self.update_bar)
-        self.file_tabs=QTabBar(); self.file_tabs.setObjectName('documentTabs'); self.file_tabs.setDocumentMode(True); self.file_tabs.setExpanding(False); self.file_tabs.setMovable(True); self.file_tabs.setTabsClosable(True); self.file_tabs.setUsesScrollButtons(True); self.file_tabs.setElideMode(Qt.TextElideMode.ElideRight); self.file_tabs.hide()
-        self.file_tabs.currentChanged.connect(self.activate_tab); self.file_tabs.tabCloseRequested.connect(self.close_tab); root.addWidget(self.file_tabs)
+        self.file_tabs=self.titlebar.tabs
+        self.file_tabs.currentChanged.connect(self.activate_tab); self.file_tabs.tabCloseRequested.connect(self.close_tab)
         toolbar=QWidget(); toolbar.setObjectName('toolbar'); bar=QHBoxLayout(toolbar); bar.setContentsMargins(10,7,12,7); bar.setSpacing(6)
         for name,tip,callback in [('sidebar','썸네일 표시 / 숨기기',self.toggle_sidebar),('open','파일 열기 · Ctrl+O',self.choose),('print','인쇄 · Ctrl+P',self.print_document),('search','찾기 · Ctrl+F',self.show_search)]: bar.addWidget(tool(name,tip,callback))
         bar.addSpacing(12)
         self.selection_buttons={}; self.selection_group=QButtonGroup(self); self.selection_group.setExclusive(True)
-        for name,label,key in [('text','텍스트 선택 · 드래그 후 Ctrl+C','text'),('capture','영역 캡처 · 드래그하면 이미지 복사','capture'),('multi','다중캡처 · 선택한 영역들을 아래로 연결','multi')]:
+        for name,label,key in [('pointer','일반 포인터','pointer'),('hand','손 도구 · 드래그하여 화면 이동','hand'),('text','텍스트 선택 · 드래그 후 Ctrl+C','text'),('capture','영역 캡처 · 드래그하면 이미지 복사','capture'),('multi','다중캡처 · 선택한 영역들을 아래로 연결','multi')]:
             button=tool(name,label,lambda checked=False,value=key:self.set_selection_tool(value)); button.setCheckable(True); self.selection_group.addButton(button); self.selection_buttons[key]=button; bar.addWidget(button)
-        self.selection_buttons['text'].setChecked(True)
-        self.mode=QComboBox(); self.mode.addItems(['단일','단일 스크롤','2페이지','2페이지 스크롤']); self.mode.setCurrentIndex(self.prefs.get('default_mode')); self.mode.currentIndexChanged.connect(self.change_mode)
+        self.selection_buttons['pointer'].setChecked(True)
+        self.mode=ViewModePicker(); self.mode.addItems(['단일','단일 스크롤','2페이지','2페이지 스크롤']); self.mode.setCurrentIndex(self.prefs.get('default_mode')); self.mode.currentIndexChanged.connect(self.change_mode)
         bar.addStretch(); bar.addWidget(tool('info','PDF 정보',self.info)); bar.addWidget(tool('settings','설정',self.show_settings)); bar.addWidget(tool('help','도움말 · F1',self.help))
         root.addWidget(toolbar)
         self.capture_bar=QWidget(); self.capture_bar.setObjectName('captureBar'); capture_row=QHBoxLayout(self.capture_bar); capture_row.setContentsMargins(12,5,12,5); capture_row.setSpacing(8)
@@ -425,13 +428,13 @@ class Window(QMainWindow):
         self.titlebar.brand.setPixmap(logo_pixmap(16,name=='dark',self.devicePixelRatioF()))
         self.setWindowIcon(application_icon(name=='dark'))
         QApplication.instance().setWindowIcon(application_icon(name=='dark'))
-        self.canvas.update(); self.thumbs.viewport().update()
+        self.mode.refresh_icons(); self.canvas.update(); self.thumbs.viewport().update()
 
     def set_selection_tool(self,name):
         self.canvas.cancel_drag(); self.selection_tool=name
         if self.selection: self.selection.clear()
         self.selection_buttons[name].setChecked(True)
-        self.canvas.setCursor(Qt.CursorShape.IBeamCursor if name=='text' else Qt.CursorShape.CrossCursor)
+        self.canvas.setCursor({'pointer':Qt.CursorShape.ArrowCursor,'hand':Qt.CursorShape.OpenHandCursor,'text':Qt.CursorShape.IBeamCursor}.get(name,Qt.CursorShape.CrossCursor))
         self.canvas.setFocus(); self.update_capture_bar()
         if name=='capture': self.show_message('영역을 드래그하면 이미지가 클립보드에 복사됩니다.')
 
@@ -669,7 +672,27 @@ class Window(QMainWindow):
         self.canvas.update()
 
     def help(self):
-        QMessageBox.information(self,'PDFeather · 도움말','Ctrl+O  파일 열기\nCtrl+P  인쇄\nCtrl+F  찾기\nCtrl+C  선택한 텍스트 / 다중캡처 복사\nCtrl+W  문서 탭 닫기\nCtrl+Tab / Ctrl+Shift+Tab  다음·이전 탭\nCtrl+,  설정\nEnter / F3  다음 결과\nShift+Enter / Shift+F3  이전 결과\nEsc  찾기 닫기\nCtrl+휠  포인터 기준 확대·축소\nCtrl++ / Ctrl+−  확대·축소\nCtrl+0  쪽 맞추기\nCtrl+1  너비 맞추기\nPageUp / PageDown  이전·다음 페이지\n\n텍스트 선택: 드래그 후 Ctrl+C 또는 우클릭 복사\n영역 캡처: 드래그 후 이미지가 바로 복사됩니다.\n다중캡처: 드래그 → 스크롤 → 다시 드래그 → 이어붙여 복사\n마지막 취소 / 초기화 / 미리보기 사용 가능\n\n단일 / 2페이지 보기: 맨 아래에서 휠을 더 내리면 다음 페이지, 맨 위에서 올리면 이전 페이지\n제목 표시줄: 끌어서 이동, 두 번 클릭으로 최대화 / 복원\n창 가장자리와 오른쪽 아래에서 크기 조절')
+        QMessageBox.information(self,'PDFeather · 도움말','Ctrl+O  파일 열기\nCtrl+P  인쇄\nCtrl+F  찾기\nCtrl+C  선택한 텍스트 / 다중캡처 복사\nCtrl+W  문서 탭 닫기\nCtrl+Tab / Ctrl+Shift+Tab  다음·이전 탭\nCtrl+,  설정\nEnter / F3  다음 결과\nShift+Enter / Shift+F3  이전 결과\nEsc  찾기 닫기\nCtrl+휠  포인터 기준 확대·축소\nCtrl++ / Ctrl+−  확대·축소\nCtrl+0  쪽 맞추기\nCtrl+1  너비 맞추기\nPageUp / PageDown  이전·다음 페이지\n\n일반 포인터: 선택·캡처 없이 문서 보기\n손 도구: 마우스를 누르고 끌어 화면 이동\n텍스트 선택: 드래그 후 Ctrl+C 또는 우클릭 복사\n영역 캡처: 드래그 후 이미지가 바로 복사됩니다.\n다중캡처: 드래그 → 스크롤 → 다시 드래그 → 이어붙여 복사\n마지막 취소 / 초기화 / 미리보기 사용 가능\n\n단일 / 2페이지 보기: 맨 아래에서 휠을 더 내리면 다음 페이지, 맨 위에서 올리면 이전 페이지\n제목 표시줄: 끌어서 이동, 두 번 클릭으로 최대화 / 복원\n창 가장자리와 오른쪽 아래에서 크기 조절')
+
+    def receive_external_files(self,paths):
+        self.external_pending.extend(paths); self.external_activate=True; self.external_timer.start(0)
+
+    def drain_external_files(self):
+        if self.external_draining or QApplication.activeModalWidget() is not None:
+            self.external_timer.start(150); return
+        if not self.external_activate: return
+        self.external_draining=True; self.external_activate=False
+        paths=self.external_pending; self.external_pending=[]
+        try:
+            self.settings_dialog.hide()
+            for path in paths: self.open(path)
+            if self.isMinimized(): self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+            self.show()
+            self.raise_(); self.activateWindow()
+            QTimer.singleShot(150,self.activateWindow)
+        finally:
+            self.external_draining=False
+            if self.external_pending or self.external_activate: self.external_timer.start(0)
 
     def choose(self):
         paths, _ = QFileDialog.getOpenFileNames(self, 'PDF 열기', '', 'PDF (*.pdf)')
@@ -690,7 +713,7 @@ class Window(QMainWindow):
         except Exception as exc: QMessageBox.warning(self,'열기 실패',str(exc)); return
         state=DocumentTab(new,TextSelection(new),mode=self.prefs.get('default_mode'),fit_mode=None if self.prefs.get('default_fit')=='actual' else self.prefs.get('default_fit'))
         self.file_tabs.blockSignals(True); index=self.file_tabs.addTab(Path(path).name); self.file_tabs.setTabData(index,state); self.file_tabs.setTabToolTip(index,path); self.file_tabs.setCurrentIndex(index); self.file_tabs.blockSignals(False)
-        self.file_tabs.show(); self.activate_tab(index)
+        self.titlebar.sync_tabs(); self.activate_tab(index)
 
     def save_tab_state(self):
         state=self.active_tab
@@ -748,7 +771,7 @@ class Window(QMainWindow):
         state.doc.close()
         if active and self.file_tabs.count(): self.activate_tab(self.file_tabs.currentIndex())
         elif not self.file_tabs.count():
-            self.restoring_tab=False; self.matches=[]; self.match_index=-1; self.current=0; self.search_bar.hide(); self.file_tabs.hide(); self.rebuild_thumbnails()
+            self.restoring_tab=False; self.matches=[]; self.match_index=-1; self.current=0; self.search_bar.hide(); self.titlebar.sync_tabs(); self.rebuild_thumbnails()
             self.page.setRange(1,1); self.total.setText('/ 0'); self.setWindowTitle('PDFeather'); self.canvas.arrange()
 
     def cycle_tab(self,direction):
@@ -846,6 +869,7 @@ class Window(QMainWindow):
         if self.prefs.get('remember_geometry'): self.prefs.storage.setValue('window_geometry',self.saveGeometry()); self.prefs.storage.sync()
         self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
         QApplication.instance().removeEventFilter(self)
+        self.external_timer.stop(); self.external_pending=[]
         self.update_timer.stop(); self.update_daily_timer.stop(); self.update_checker.cancel()
         self.canvas.cancel_drag(); self.notice_timer.stop(); self.settings_dialog.close(); self.captures.close()
         for i in range(self.file_tabs.count()): self.file_tabs.tabData(i).doc.close()
@@ -858,8 +882,36 @@ if __name__ == '__main__':
     if sys.platform=='win32': ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(NAME)
     app = QApplication(sys.argv); app.setApplicationName(NAME); app.setApplicationVersion(VERSION); app.setStyle('Fusion')
     app.setStyleSheet(STYLE)
-    window=Window(enable_updates='--smoke-test' not in sys.argv); window.show()
-    if len(sys.argv)>1 and sys.argv[1]=='--smoke-test':
+    test_instance=len(sys.argv)>2 and sys.argv[1]=='--instance-test'
+    smoke_mode=len(sys.argv)>1 and sys.argv[1]=='--smoke-test'
+    instance=None
+    if not smoke_mode:
+        if test_instance:
+            status_path=Path(sys.argv[2]).resolve()
+            key='PDFeather-test-'+__import__('hashlib').sha256(str(status_path).encode()).hexdigest()[:20]
+            instance=SingleInstance(app,name=key,directory=status_path.parent/'ipc')
+            files=sys.argv[3:]
+        else:
+            instance=SingleInstance(app); files=sys.argv[1:]
+        try:
+            if not instance.start_or_forward(files): sys.exit(0)
+        except Exception as exc:
+            if test_instance:
+                import json
+                status_path.write_text(json.dumps({'error':str(exc),'server_error':instance.server.errorString()}),encoding='utf-8')
+            else: QMessageBox.warning(None,NAME,str(exc))
+            sys.exit(1)
+        app.aboutToQuit.connect(instance.close)
+    window=Window(enable_updates=not (smoke_mode or test_instance)); window.show()
+    if instance: instance.paths_received.connect(window.receive_external_files)
+    if test_instance:
+        def report_instance():
+            import json
+            paths=[window.file_tabs.tabData(i).doc.path for i in range(window.file_tabs.count())]
+            status_path.write_text(json.dumps({'pid':os.getpid(),'paths':paths,'tabs':len(paths)},ensure_ascii=False),encoding='utf-8')
+        report_timer=QTimer(window); report_timer.setInterval(80); report_timer.timeout.connect(report_instance); report_timer.start()
+        for path in files: window.open(path)
+    if smoke_mode:
         window.open(sys.argv[2])
         dialog=PrintWindow(window.doc,window); dialog.show()
         result_path=Path(sys.argv[3]); deadline=time.monotonic()+40
@@ -890,6 +942,6 @@ if __name__ == '__main__':
             elif time.monotonic()>deadline:
                 result_path.write_text('failed: '+dialog.error.text()); check.stop(); dialog.close(); window.close(); app.exit(1)
         check.timeout.connect(smoke_check); check.start()
-    elif len(sys.argv)>1:
-        for path in sys.argv[1:]: window.open(path)
+    elif not test_instance:
+        for path in files: window.open(path)
     sys.exit(app.exec())

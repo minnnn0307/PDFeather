@@ -14,6 +14,7 @@ LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=no
 ShowLanguageDialog=no
 AppVersion={#AppVersion}
+ChangesAssociations=yes
 DefaultDirName={localappdata}\Programs\PDFeather
 DefaultGroupName=PDFeather
 PrivilegesRequired=lowest
@@ -38,6 +39,18 @@ korean.LaunchApp=PDFeather 실행
 [Files]
 Source: "..\dist\PDFeather\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\assets\PDFeather-1.2.0.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+[Registry]
+Root: HKA; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "PDFeather.PDF"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\PDFeather.PDF"; ValueType: string; ValueName: ""; ValueData: "PDFeather"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\PDFeather.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\icons\PDFeather-1.2.0.ico"
+Root: HKA; Subkey: "Software\Classes\PDFeather.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\PDFeather.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\Applications\PDFeather.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "PDFeather"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Applications\PDFeather.exe\SupportedTypes"; ValueType: string; ValueName: ".pdf"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\PDFeather.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\PDFeather.exe"" ""%1"""
+Root: HKA; Subkey: "Software\PDFeather\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "PDFeather"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\PDFeather\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "PDFeather"
+Root: HKA; Subkey: "Software\PDFeather\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pdf"; ValueData: "PDFeather.PDF"
+Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "PDFeather"; ValueData: "Software\PDFeather\Capabilities"; Flags: uninsdeletevalue
 [Icons]
 Name: "{group}\PDFeather"; Filename: "{app}\PDFeather.exe"; IconFilename: "{app}\icons\PDFeather-1.2.0.ico"
 Name: "{autodesktop}\PDFeather"; Filename: "{app}\PDFeather.exe"; IconFilename: "{app}\icons\PDFeather-1.2.0.ico"; Tasks: desktopicon

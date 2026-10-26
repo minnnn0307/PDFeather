@@ -6,16 +6,23 @@ from PySide6.QtWidgets import QMenu
 class CanvasInteraction:
     def init_interactions(self):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setMouseTracking(True); self.setCursor(Qt.CursorShape.IBeamCursor)
-        self.dragging=False; self.drag_anchor=None; self.drag_pointer=None; self.capture_rect=None
+        self.setMouseTracking(True); self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.dragging=False; self.drag_anchor=None; self.drag_pointer=None; self.capture_rect=None; self.pan_origin=None; self.pan_scroll=(0,0)
         self.drag_timer=QTimer(self); self.drag_timer.setInterval(30); self.drag_timer.timeout.connect(self.auto_scroll)
 
     def cancel_drag(self):
-        self.dragging=False; self.drag_timer.stop(); self.capture_rect=None; self.update()
+        self.dragging=False; self.drag_timer.stop(); self.capture_rect=None
+        if self.reader.selection_tool=='hand': self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.update()
 
     def mousePressEvent(self,event):
         if event.button()!=Qt.MouseButton.LeftButton or not self.reader.doc: return super().mousePressEvent(event)
         self.setFocus(); self.drag_anchor=event.position(); self.drag_pointer=event.globalPosition().toPoint()
+        if self.reader.selection_tool=='pointer':
+            if self.reader.selection: self.reader.selection.clear()
+            self.update(); event.accept(); return
+        if self.reader.selection_tool=='hand':
+            self.pan_origin=event.globalPosition().toPoint(); self.pan_scroll=(self.reader.scroll.horizontalScrollBar().value(),self.reader.scroll.verticalScrollBar().value()); self.dragging=True; self.setCursor(Qt.CursorShape.ClosedHandCursor); event.accept(); return
         if self.reader.selection_tool=='text':
             endpoint=self.reader.selection.hit(event.position(),self.rects,strict=True)
             if endpoint is None:
@@ -26,6 +33,9 @@ class CanvasInteraction:
         self.dragging=True; self.drag_timer.start(); self.update(); event.accept()
 
     def update_drag(self,point):
+        if self.reader.selection_tool=='hand':
+            delta=self.drag_pointer-self.pan_origin
+            self.reader.scroll.horizontalScrollBar().setValue(self.pan_scroll[0]-delta.x()); self.reader.scroll.verticalScrollBar().setValue(self.pan_scroll[1]-delta.y()); return
         if self.reader.selection_tool=='text':
             self.reader.selection.extend(self.reader.selection.hit(point,self.rects))
         else:
@@ -40,8 +50,9 @@ class CanvasInteraction:
 
     def mouseReleaseEvent(self,event):
         if event.button()==Qt.MouseButton.LeftButton and self.dragging:
-            self.update_drag(event.position()); self.dragging=False; self.drag_timer.stop()
-            if self.reader.selection_tool!='text':
+            self.drag_pointer=event.globalPosition().toPoint(); self.update_drag(event.position()); self.dragging=False; self.drag_timer.stop()
+            if self.reader.selection_tool=='hand': self.setCursor(Qt.CursorShape.OpenHandCursor)
+            if self.reader.selection_tool in ('capture','multi'):
                 region=self.capture_rect; self.capture_rect=None; self.update()
                 if region and region.width()>=4 and region.height()>=4: self.reader.capture_region(region)
             event.accept()
@@ -68,6 +79,8 @@ class CanvasInteraction:
         menu=QMenu(self)
         copy=menu.addAction('선택한 텍스트 복사'); copy.setEnabled(bool(self.reader.selection and self.reader.selection.anchor is not None)); copy.triggered.connect(self.reader.copy_text)
         menu.addSeparator()
+        menu.addAction('일반 포인터',lambda:self.reader.set_selection_tool('pointer'))
+        menu.addAction('손 도구',lambda:self.reader.set_selection_tool('hand'))
         menu.addAction('텍스트 선택',lambda:self.reader.set_selection_tool('text'))
         menu.addAction('영역 캡처',lambda:self.reader.set_selection_tool('capture'))
         menu.addAction('다중캡처',lambda:self.reader.set_selection_tool('multi'))
