@@ -33,6 +33,11 @@ QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {{ height:0; }}
 QScrollBar:horizontal {{ background:{c['scroll']}; height:11px; margin:0; }}
 QScrollBar::handle:horizontal {{ background:{c['handle']}; min-width:25px; border-radius:4px; margin:2px; }}
 QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal {{ width:0; }}
+QToolButton:checked {{ background:{c['selected']}; border:1px solid {c['line']}; }}
+#captureBar {{ background:{c['bar']}; border-bottom:1px solid {c['line']}; }}
+#captureBar QPushButton {{ padding:6px 10px; }}
+#noticeText {{ background:{c['title']}; color:{c['text']}; border:1px solid {c['line']}; border-radius:6px; padding:9px 14px; }}
+#documentTabs {{ background:{c['title']}; }}
 #sectionTitle {{ font-size:21px; font-weight:600; }}
 #categoryNav {{ background:{c['title']}; padding-top:14px; }}
 #categoryNav::item {{ padding:13px 16px; margin:3px 8px; border-radius:5px; }}

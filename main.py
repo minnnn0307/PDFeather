@@ -13,13 +13,17 @@ from PySide6.QtGui import QImage, QPainter, QColor, QIcon, QPixmap, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QScrollArea,
     QPushButton, QComboBox, QSpinBox, QLabel, QFileDialog, QMessageBox, QSplitter,
     QListWidget, QListWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QInputDialog, QFrame, QSizeGrip, QDoubleSpinBox, QGridLayout, QToolButton)
+    QLineEdit, QInputDialog, QFrame, QSizeGrip, QDoubleSpinBox, QGridLayout, QToolButton, QTabBar, QButtonGroup)
 from layout import parse_pages, grid, placement, print_cells
 from widgets import TitleBar, ThumbnailDelegate, tool, set_theme, icon, CategorySections
 from preferences import Preferences, SettingsPanel
 from branding import application_icon, logo_pixmap
 from themes import PALETTES, stylesheet, apply_palette
 from rendering import visible_tiles
+from selection import TextSelection
+from capture import CaptureCollection,snapshot
+from tabs import DocumentTab
+from interaction import CanvasInteraction
 
 
 STYLE = stylesheet('dark')
@@ -94,14 +98,22 @@ class Document:
         self.pdf.close()
 
 
-class Canvas(QWidget):
+class Canvas(CanvasInteraction,QWidget):
     def __init__(self, window):
         super().__init__()
-        self.window = window
+        self.reader = window
         self.rects = []
+        self.init_interactions()
+
+    # PySide requires virtual event overrides on the concrete QObject subclass.
+    def mousePressEvent(self,event): CanvasInteraction.mousePressEvent(self,event)
+    def mouseMoveEvent(self,event): CanvasInteraction.mouseMoveEvent(self,event)
+    def mouseReleaseEvent(self,event): CanvasInteraction.mouseReleaseEvent(self,event)
+    def keyPressEvent(self,event): CanvasInteraction.keyPressEvent(self,event)
+    def contextMenuEvent(self,event): CanvasInteraction.contextMenuEvent(self,event)
 
     def arrange(self):
-        w = self.window
+        w = self.reader
         self.rects = []
         if not w.doc:
             self.resize(700, 700)
@@ -129,10 +141,10 @@ class Canvas(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(event.rect(), QColor(self.window.theme['canvas']))
-        w = self.window
+        painter.fillRect(event.rect(), QColor(self.reader.theme['canvas']))
+        w = self.reader
         if not w.doc:
-            painter.setPen(QColor(self.window.theme['muted']))
+            painter.setPen(QColor(self.reader.theme['muted']))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, 'PDF 파일을 열거나 이 창으로 끌어 놓으세요\nCtrl+O')
             return
         try:
@@ -148,6 +160,7 @@ class Canvas(QWidget):
                     else:
                         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
                         painter.drawImage(rect,w.doc.image(i,w.zoom*self.devicePixelRatioF()))
+                    self.paint_selection(painter,i,rect)
                     if w.mode.currentIndex() in (1,3):
                         painter.setPen(QColor('#9ca3af'))
                         painter.drawLine(QPointF(rect.left(),rect.bottom()),QPointF(rect.right(),rect.bottom()))
@@ -157,6 +170,7 @@ class Canvas(QWidget):
                         painter.setBrush(QColor(255,151,45,145) if match_no==w.match_index else QColor(255,220,40,100))
                         for l,b,r,t in boxes:
                             painter.drawRect(QRectF(rect.x()+l*w.zoom,rect.y()+(w.doc.sizes[i][1]-t)*w.zoom,(r-l)*w.zoom,(t-b)*w.zoom))
+            self.paint_drag(painter)
         except Exception as exc:
             painter.drawText(event.rect(), Qt.AlignmentFlag.AlignCenter, f'렌더링 오류: {exc}')
 
@@ -321,18 +335,34 @@ class Window(QMainWindow):
         self.prefs=preferences if preferences is not None else Preferences()
         self.theme_name=self.prefs.get('theme'); self.theme=PALETTES[self.theme_name]
         set_theme(self.theme_name)
+        self.active_tab=None; self.restoring_tab=False; self.selection=None; self.selection_tool='text'; self.captures=CaptureCollection()
         self.doc=None; self.current=0; self.zoom=1.; self.fit_mode=None; self.last_flip=0
         self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=''; self.suppress_scroll=False
         self.setWindowFlags(Qt.WindowType.Window|Qt.WindowType.FramelessWindowHint)
         self.setWindowTitle('PDFeather'); self.resize(1200,850); self.setMinimumSize(960,540); self.setAcceptDrops(True)
         shell=QWidget(); shell.setObjectName('shell'); root=QVBoxLayout(shell); root.setSpacing(0); root.setContentsMargins(0,0,0,0)
         self.titlebar=TitleBar(self); root.addWidget(self.titlebar)
+        self.file_tabs=QTabBar(); self.file_tabs.setObjectName('documentTabs'); self.file_tabs.setDocumentMode(True); self.file_tabs.setExpanding(False); self.file_tabs.setMovable(True); self.file_tabs.setTabsClosable(True); self.file_tabs.setUsesScrollButtons(True); self.file_tabs.setElideMode(Qt.TextElideMode.ElideRight); self.file_tabs.hide()
+        self.file_tabs.currentChanged.connect(self.activate_tab); self.file_tabs.tabCloseRequested.connect(self.close_tab); root.addWidget(self.file_tabs)
         toolbar=QWidget(); toolbar.setObjectName('toolbar'); bar=QHBoxLayout(toolbar); bar.setContentsMargins(10,7,12,7); bar.setSpacing(6)
         for name,tip,callback in [('sidebar','썸네일 표시 / 숨기기',self.toggle_sidebar),('open','파일 열기 · Ctrl+O',self.choose),('print','인쇄 · Ctrl+P',self.print_document),('search','찾기 · Ctrl+F',self.show_search)]: bar.addWidget(tool(name,tip,callback))
         bar.addSpacing(12)
+        self.selection_buttons={}; self.selection_group=QButtonGroup(self); self.selection_group.setExclusive(True)
+        for name,label,key in [('text','텍스트 선택 · 드래그 후 Ctrl+C','text'),('capture','영역 캡처 · 드래그하면 이미지 복사','capture'),('multi','다중캡처 · 선택한 영역들을 아래로 연결','multi')]:
+            button=tool(name,label,lambda checked=False,value=key:self.set_selection_tool(value)); button.setCheckable(True); self.selection_group.addButton(button); self.selection_buttons[key]=button; bar.addWidget(button)
+        self.selection_buttons['text'].setChecked(True)
         self.mode=QComboBox(); self.mode.addItems(['단일','단일 스크롤','2페이지','2페이지 스크롤']); self.mode.setCurrentIndex(self.prefs.get('default_mode')); self.mode.currentIndexChanged.connect(self.change_mode)
         bar.addStretch(); bar.addWidget(tool('info','PDF 정보',self.info)); bar.addWidget(tool('settings','설정',self.show_settings)); bar.addWidget(tool('help','도움말 · F1',self.help))
         root.addWidget(toolbar)
+        self.capture_bar=QWidget(); self.capture_bar.setObjectName('captureBar'); capture_row=QHBoxLayout(self.capture_bar); capture_row.setContentsMargins(12,5,12,5); capture_row.setSpacing(8)
+        self.capture_status=QLabel(''); capture_row.addWidget(self.capture_status,1)
+        self.capture_preview=QPushButton('미리보기'); self.capture_preview.clicked.connect(self.preview_captures); capture_row.addWidget(self.capture_preview)
+        self.capture_undo=QPushButton('마지막 취소'); self.capture_undo.clicked.connect(self.undo_capture); capture_row.addWidget(self.capture_undo)
+        self.capture_clear=QPushButton('초기화'); self.capture_clear.clicked.connect(self.clear_captures); capture_row.addWidget(self.capture_clear)
+        self.capture_copy=QPushButton('이어붙여 복사'); self.capture_copy.setObjectName('primaryButton'); self.capture_copy.clicked.connect(self.copy_captures); capture_row.addWidget(self.capture_copy)
+        root.addWidget(self.capture_bar); self.capture_bar.hide()
+        self.notice=QLabel(self); self.notice.setObjectName('noticeText'); self.notice.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents); self.notice.hide()
+        self.notice_timer=QTimer(self); self.notice_timer.setSingleShot(True); self.notice_timer.timeout.connect(self.notice.hide)
         self.search_bar=QWidget(); search_layout=QHBoxLayout(self.search_bar); search_layout.setContentsMargins(12,5,12,5)
         self.search_input=QLineEdit(); self.search_input.setPlaceholderText('문서에서 찾기 · Enter 다음 / Shift+Enter 이전')
         self.search_status=QLabel(''); search_layout.addWidget(self.search_input,1); search_layout.addWidget(self.search_status)
@@ -343,7 +373,7 @@ class Window(QMainWindow):
         self.search_input.textChanged.connect(lambda *_:self.search_debounce.start()); self.search_input.returnPressed.connect(lambda:self.next_match(-1 if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier else 1))
         self.thumbs=QListWidget(); self.thumbs.setIconSize(QSize(130,165)); self.thumbs.setMinimumWidth(140); self.thumbs.setItemDelegate(ThumbnailDelegate(self.thumbs)); self.thumbs.currentRowChanged.connect(self.go)
         self.scroll=QScrollArea(); self.scroll.setFrameShape(QFrame.Shape.NoFrame); self.scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.canvas=Canvas(self); self.scroll.setWidget(self.canvas)
+        self.canvas=Canvas(self); self.scroll.setWidget(self.canvas); self.notice.setParent(self.scroll.viewport())
         self.split=QSplitter(); self.split.setHandleWidth(1); self.split.addWidget(self.thumbs); self.split.addWidget(self.scroll); self.split.setSizes([164,1036]); root.addWidget(self.split,1)
         footer=QWidget(); footer.setObjectName('footer'); bottom=QHBoxLayout(footer); bottom.setContentsMargins(10,4,7,4)
         left=QWidget(); left.setMinimumWidth(360); bottom.addWidget(left,1)
@@ -369,7 +399,7 @@ class Window(QMainWindow):
         self.scroll.verticalScrollBar().valueChanged.connect(self.scrolled)
         self.thumbs.verticalScrollBar().valueChanged.connect(self.queue_thumbs)
         self.thumb_timer=QTimer(self); self.thumb_timer.setSingleShot(True); self.thumb_timer.timeout.connect(self.render_thumbs)
-        for key,callback in [(QKeySequence.StandardKey.Open,self.choose),(QKeySequence.StandardKey.Print,self.print_document),(QKeySequence.StandardKey.Find,self.show_search),('Escape',self.hide_search),('F1',self.help),('Ctrl+,',self.show_settings),('F3',lambda:self.next_match(1)),('Shift+F3',lambda:self.next_match(-1)),('Ctrl+0',lambda:self.fit('page')),('Ctrl+1',lambda:self.fit('width')),('Ctrl+=',lambda:self.set_zoom(self.zoom*1.15)),('Ctrl+-',lambda:self.set_zoom(self.zoom/1.15)),('PgDown',lambda:self.turn(1)),('PgUp',lambda:self.turn(-1))]: QShortcut(QKeySequence(key),self,activated=callback)
+        for key,callback in [(QKeySequence.StandardKey.Open,self.choose),(QKeySequence.StandardKey.Print,self.print_document),(QKeySequence.StandardKey.Find,self.show_search),('Escape',self.hide_search),('F1',self.help),('Ctrl+,',self.show_settings),('Ctrl+W',self.close_current_tab),('Ctrl+Tab',lambda:self.cycle_tab(1)),('Ctrl+Shift+Tab',lambda:self.cycle_tab(-1)),('F3',lambda:self.next_match(1)),('Shift+F3',lambda:self.next_match(-1)),('Ctrl+0',lambda:self.fit('page')),('Ctrl+1',lambda:self.fit('width')),('Ctrl+=',lambda:self.set_zoom(self.zoom*1.15)),('Ctrl+-',lambda:self.set_zoom(self.zoom/1.15)),('PgDown',lambda:self.turn(1)),('PgUp',lambda:self.turn(-1))]: QShortcut(QKeySequence(key),self,activated=callback)
         QApplication.instance().installEventFilter(self)
         self.canvas.arrange()
         self.apply_theme(self.theme_name)
@@ -384,6 +414,71 @@ class Window(QMainWindow):
         self.setWindowIcon(application_icon(name=='dark'))
         QApplication.instance().setWindowIcon(application_icon(name=='dark'))
         self.canvas.update(); self.thumbs.viewport().update()
+
+    def set_selection_tool(self,name):
+        self.canvas.cancel_drag(); self.selection_tool=name
+        if self.selection: self.selection.clear()
+        self.selection_buttons[name].setChecked(True)
+        self.canvas.setCursor(Qt.CursorShape.IBeamCursor if name=='text' else Qt.CursorShape.CrossCursor)
+        self.canvas.setFocus(); self.update_capture_bar()
+        if name=='capture': self.show_message('영역을 드래그하면 이미지가 클립보드에 복사됩니다.')
+
+    def show_message(self,text):
+        self.notice.setText(text); self.notice.adjustSize()
+        self.notice.move(max(8,(self.scroll.viewport().width()-self.notice.width())//2),12)
+        self.notice.show(); self.notice.raise_(); self.notice_timer.start(3500)
+
+    def update_capture_bar(self):
+        count=len(self.captures.items); width,height=self.captures.size
+        self.capture_status.setText(f'다중캡처 {count}개 · {width} × {height} px' if count else '다중캡처 · 영역 선택 → 스크롤 → 다시 선택 → 이어붙여 복사')
+        for button in [self.capture_preview,self.capture_undo,self.capture_clear,self.capture_copy]: button.setEnabled(bool(count))
+        self.capture_bar.setVisible(self.selection_tool=='multi' or bool(count))
+
+    def capture_region(self,region):
+        if not self.doc: return
+        try:
+            image=snapshot(self.doc,self.canvas.rects,region,self.canvas.devicePixelRatioF())
+            if self.selection_tool=='multi':
+                self.captures.add(image); self.update_capture_bar()
+            else:
+                QApplication.clipboard().setImage(image); self.show_message('선택한 영역을 이미지로 복사했습니다.')
+        except Exception as exc: QMessageBox.warning(self,'캡처',str(exc))
+
+    def undo_capture(self):
+        self.captures.undo(); self.update_capture_bar()
+
+    def clear_captures(self):
+        self.captures.clear(); self.update_capture_bar()
+
+    def copy_captures(self):
+        try:
+            image=self.captures.image(); QApplication.clipboard().setImage(image)
+            self.show_message(f'{len(self.captures.items)}개 영역을 아래로 이어붙여 복사했습니다.')
+        except Exception as exc: QMessageBox.warning(self,'다중캡처',str(exc))
+
+    def preview_captures(self):
+        if not self.captures.items: return
+        try: image=self.captures.image()
+        except Exception as exc: QMessageBox.warning(self,'다중캡처',str(exc)); return
+        dialog=QDialog(self); dialog.setWindowTitle('다중캡처 미리보기'); dialog.resize(760,700)
+        layout=QVBoxLayout(dialog); width,height=self.captures.size
+        layout.addWidget(QLabel(f'{len(self.captures.items)}개 · {width} × {height} px · 캡처한 순서대로 연결'))
+        label=QLabel(); label.setAlignment(Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignTop)
+        pix=QPixmap.fromImage(image)
+        if pix.width()>690: pix=pix.scaledToWidth(690,Qt.TransformationMode.SmoothTransformation)
+        label.setPixmap(pix); area=QScrollArea(); area.setWidget(label); area.setWidgetResizable(True); layout.addWidget(area,1)
+        actions=QHBoxLayout(); actions.addStretch(); copy=QPushButton('이어붙여 복사'); copy.clicked.connect(self.copy_captures); close=QPushButton('닫기'); close.clicked.connect(dialog.accept); actions.addWidget(copy); actions.addWidget(close); layout.addLayout(actions); dialog.exec()
+
+    def copy_text(self):
+        if not self.selection: return
+        try:
+            text=self.selection.text()
+            if text: QApplication.clipboard().setText(text); self.show_message('선택한 텍스트를 복사했습니다.')
+        except Exception as exc: QMessageBox.warning(self,'텍스트 복사',str(exc))
+
+    def copy_content(self):
+        if self.selection_tool=='multi' and self.captures.items: self.copy_captures()
+        else: self.copy_text()
 
     def show_settings(self):
         self.settings_dialog.show(); self.settings_dialog.raise_(); self.settings_dialog.activateWindow()
@@ -440,6 +535,7 @@ class Window(QMainWindow):
         QTimer.singleShot(0,self.refit)
 
     def refit(self):
+        if self.restoring_tab: return
         if self.fit_mode: self.fit(self.fit_mode)
         else: self.canvas.arrange()
         self.queue_thumbs()
@@ -464,7 +560,9 @@ class Window(QMainWindow):
         self.search_bar.show(); self.search_input.setFocus(); self.search_input.selectAll()
 
     def hide_search(self):
-        self.search_bar.hide(); self.search_timer.stop(); self.search_debounce.stop(); self.matches=[]; self.match_index=-1; self.canvas.update(); self.scroll.setFocus()
+        self.canvas.cancel_drag()
+        if self.selection: self.selection.clear()
+        self.search_bar.hide(); self.search_timer.stop(); self.search_debounce.stop(); self.matches=[]; self.match_index=-1; self.canvas.update(); self.canvas.setFocus()
 
     def begin_search(self):
         self.search_timer.stop(); self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=self.search_input.text().strip()
@@ -522,35 +620,90 @@ class Window(QMainWindow):
         self.canvas.update()
 
     def help(self):
-        QMessageBox.information(self,'PDFeather · 도움말','Ctrl+O  파일 열기\nCtrl+P  인쇄\nCtrl+F  찾기\nCtrl+,  설정\nEnter / F3  다음 결과\nShift+Enter / Shift+F3  이전 결과\nEsc  찾기 닫기\nCtrl+휠  포인터 기준 확대·축소\nCtrl++ / Ctrl+−  확대·축소\nCtrl+0  쪽 맞추기\nCtrl+1  너비 맞추기\nPageUp / PageDown  이전·다음 페이지\n\n단일 / 2페이지 보기: 맨 아래에서 휠을 더 내리면 다음 페이지, 맨 위에서 올리면 이전 페이지\n제목 표시줄: 끌어서 이동, 두 번 클릭으로 최대화 / 복원\n창 가장자리와 오른쪽 아래에서 크기 조절')
+        QMessageBox.information(self,'PDFeather · 도움말','Ctrl+O  파일 열기\nCtrl+P  인쇄\nCtrl+F  찾기\nCtrl+C  선택한 텍스트 / 다중캡처 복사\nCtrl+W  문서 탭 닫기\nCtrl+Tab / Ctrl+Shift+Tab  다음·이전 탭\nCtrl+,  설정\nEnter / F3  다음 결과\nShift+Enter / Shift+F3  이전 결과\nEsc  찾기 닫기\nCtrl+휠  포인터 기준 확대·축소\nCtrl++ / Ctrl+−  확대·축소\nCtrl+0  쪽 맞추기\nCtrl+1  너비 맞추기\nPageUp / PageDown  이전·다음 페이지\n\n텍스트 선택: 드래그 후 Ctrl+C 또는 우클릭 복사\n영역 캡처: 드래그 후 이미지가 바로 복사됩니다.\n다중캡처: 드래그 → 스크롤 → 다시 드래그 → 이어붙여 복사\n마지막 취소 / 초기화 / 미리보기 사용 가능\n\n단일 / 2페이지 보기: 맨 아래에서 휠을 더 내리면 다음 페이지, 맨 위에서 올리면 이전 페이지\n제목 표시줄: 끌어서 이동, 두 번 클릭으로 최대화 / 복원\n창 가장자리와 오른쪽 아래에서 크기 조절')
 
     def choose(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'PDF 열기', '', 'PDF (*.pdf)')
-        if path: self.open(path)
+        paths, _ = QFileDialog.getOpenFileNames(self, 'PDF 열기', '', 'PDF (*.pdf)')
+        for path in paths: self.open(path)
 
-    def open(self, path):
+    def open(self,path):
+        path=str(Path(path).resolve())
+        for i in range(self.file_tabs.count()):
+            state=self.file_tabs.tabData(i)
+            if os.path.normcase(str(Path(state.doc.path).resolve()))==os.path.normcase(path):
+                self.file_tabs.setCurrentIndex(i); return
         try:
-            try: new = Document(path)
+            try: new=Document(path)
             except pdfium.PdfiumError:
-                password, ok = QInputDialog.getText(self, 'PDF 열기', '암호화된 PDF라면 비밀번호를 입력하세요.', QLineEdit.EchoMode.Password)
+                password,ok=QInputDialog.getText(self,'PDF 열기','암호화된 PDF라면 비밀번호를 입력하세요.',QLineEdit.EchoMode.Password)
                 if not ok: return
-                new = Document(path, password)
-        except Exception as exc: QMessageBox.warning(self, '열기 실패', str(exc)); return
-        self.search_timer.stop(); self.search_debounce.stop(); self.matches=[]; self.match_index=-1
-        old = self.doc; self.doc = new
-        if old: old.close()
-        self.current = 0; self.thumbs.blockSignals(True); self.thumbs.clear()
-        for i in range(len(new.sizes)):
-            item = QListWidgetItem(str(i+1)); item.setSizeHint(QSize(140, 185)); self.thumbs.addItem(item)
+                new=Document(path,password)
+        except Exception as exc: QMessageBox.warning(self,'열기 실패',str(exc)); return
+        state=DocumentTab(new,TextSelection(new),mode=self.prefs.get('default_mode'),fit_mode=None if self.prefs.get('default_fit')=='actual' else self.prefs.get('default_fit'))
+        self.file_tabs.blockSignals(True); index=self.file_tabs.addTab(Path(path).name); self.file_tabs.setTabData(index,state); self.file_tabs.setTabToolTip(index,path); self.file_tabs.setCurrentIndex(index); self.file_tabs.blockSignals(False)
+        self.file_tabs.show(); self.activate_tab(index)
+
+    def save_tab_state(self):
+        state=self.active_tab
+        if state is None: return
+        state.current=self.current; state.zoom=self.zoom; state.fit_mode=self.fit_mode; state.mode=self.mode.currentIndex()
+        state.scroll_x=self.scroll.horizontalScrollBar().value(); state.scroll_y=self.scroll.verticalScrollBar().value()
+        state.search_query=self.search_query; state.search_input=self.search_input.text(); state.search_visible=not self.search_bar.isHidden(); state.search_page=self.search_page
+        state.matches=self.matches; state.match_index=self.match_index
+
+    def rebuild_thumbnails(self):
+        self.thumbs.blockSignals(True); self.thumbs.clear()
+        if self.doc:
+            for i in range(len(self.doc.sizes)):
+                item=QListWidgetItem(str(i+1)); item.setSizeHint(QSize(140,185)); self.thumbs.addItem(item)
         self.thumbs.blockSignals(False)
-        self.page.setMaximum(len(new.sizes)); self.total.setText(f' / {len(new.sizes)}  ')
-        self.mode.setCurrentIndex(self.prefs.get('default_mode'))
-        self.setWindowTitle(f'{Path(path).name} — PDFeather'); self.canvas.arrange(); self.go(0)
-        fit=self.prefs.get('default_fit')
-        if fit=='actual': self.set_zoom(1.)
-        else: self.fit(fit)
-        self.queue_thumbs()
-        if self.search_bar.isVisible(): self.begin_search()
+
+    def activate_tab(self,index):
+        if index<0: return
+        state=self.file_tabs.tabData(index)
+        if state is None or state is self.active_tab: return
+        self.save_tab_state(); self.canvas.cancel_drag(); self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
+        if self.doc: self.doc.cache.clear(); self.doc.cache_bytes=0
+        self.restoring_tab=True; self.suppress_scroll=True
+        self.active_tab=state; self.doc=state.doc; self.selection=state.selection; self.current=state.current; self.zoom=state.zoom; self.fit_mode=state.fit_mode
+        self.mode.blockSignals(True); self.mode.setCurrentIndex(state.mode); self.mode.blockSignals(False)
+        self.zoom_box.blockSignals(True); self.zoom_box.setValue(round(self.zoom*100)); self.zoom_box.blockSignals(False)
+        self.matches=state.matches; self.match_index=state.match_index; self.search_query=state.search_query; self.search_page=state.search_page
+        self.search_input.blockSignals(True); self.search_input.setText(state.search_input); self.search_input.blockSignals(False); self.search_bar.setVisible(state.search_visible)
+        self.page.setMaximum(len(self.doc.sizes)); self.total.setText(f' / {len(self.doc.sizes)}  '); self.rebuild_thumbnails()
+        self.setWindowTitle(f'{Path(self.doc.path).name} — PDFeather'); self.canvas.arrange(); self.sync_page()
+        if self.fit_mode: self.fit(self.fit_mode)
+        self.suppress_scroll=False
+        def restore():
+            if self.active_tab is not state: return
+            self.suppress_scroll=True
+            if state.initialized:
+                self.scroll.horizontalScrollBar().setValue(state.scroll_x); self.scroll.verticalScrollBar().setValue(state.scroll_y)
+            else:
+                self.go(state.current); state.initialized=True
+            self.suppress_scroll=False; self.restoring_tab=False; self.queue_thumbs(); self.canvas.setFocus()
+            if state.search_visible and state.search_query and self.search_page<len(self.doc.sizes): self.search_timer.start()
+            self.update_search_status() if state.search_query else self.search_status.clear()
+        QTimer.singleShot(0,restore)
+
+    def close_current_tab(self):
+        if self.file_tabs.currentIndex()>=0: self.close_tab(self.file_tabs.currentIndex())
+
+    def close_tab(self,index):
+        state=self.file_tabs.tabData(index)
+        if state is None: return
+        active=state is self.active_tab
+        self.file_tabs.blockSignals(True); self.file_tabs.removeTab(index); self.file_tabs.blockSignals(False)
+        if active:
+            self.active_tab=None; self.doc=None; self.selection=None; self.canvas.cancel_drag(); self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
+        state.doc.close()
+        if active and self.file_tabs.count(): self.activate_tab(self.file_tabs.currentIndex())
+        elif not self.file_tabs.count():
+            self.restoring_tab=False; self.matches=[]; self.match_index=-1; self.current=0; self.search_bar.hide(); self.file_tabs.hide(); self.rebuild_thumbnails()
+            self.page.setRange(1,1); self.total.setText('/ 0'); self.setWindowTitle('PDFeather'); self.canvas.arrange()
+
+    def cycle_tab(self,direction):
+        if self.file_tabs.count(): self.file_tabs.setCurrentIndex((self.file_tabs.currentIndex()+direction)%self.file_tabs.count())
 
     def queue_thumbs(self, *_): self.thumb_timer.start(30)
 
@@ -571,6 +724,7 @@ class Window(QMainWindow):
     def set_zoom(self, zoom, anchor=None, keep_fit=False):
         zoom=max(.1,min(5.,zoom))
         if not keep_fit: self.fit_mode=None
+        if self.canvas.dragging: self.canvas.cancel_drag()
         if abs(zoom-self.zoom)<.0001: self.canvas.arrange(); return
         viewport=self.scroll.viewport()
         anchor=anchor or viewport.rect().center()
@@ -637,13 +791,15 @@ class Window(QMainWindow):
 
     def dropEvent(self, event):
         for url in event.mimeData().urls():
-            if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile()); break
+            if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile())
 
     def closeEvent(self, event):
         if self.prefs.get('remember_geometry'): self.prefs.storage.setValue('window_geometry',self.saveGeometry()); self.prefs.storage.sync()
         self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
         QApplication.instance().removeEventFilter(self)
-        if self.doc: self.doc.close()
+        self.canvas.cancel_drag(); self.notice_timer.stop(); self.settings_dialog.close(); self.captures.close()
+        for i in range(self.file_tabs.count()): self.file_tabs.tabData(i).doc.close()
+        self.doc=None; self.selection=None; self.active_tab=None; self.restoring_tab=False
         super().closeEvent(event)
 
 
@@ -661,9 +817,27 @@ if __name__ == '__main__':
         def smoke_check():
             pix=dialog.preview_label.pixmap()
             if pix and not pix.isNull():
-                result_path.write_text('ok'); check.stop(); dialog.close(); window.close(); app.exit(0)
+                check.stop()
+                try:
+                    # Exercise selection, composition, clipboard, and tab data in the frozen executable.
+                    window.selection.begin((0,0)); window.selection.extend((0,3))
+                    assert window.selection.text()=='Page'
+                    rect=window.canvas.rects[0][1]
+                    image=snapshot(window.doc,window.canvas.rects,QRectF(rect.x()+10,rect.y()+10,64,32))
+                    window.captures.add(image); window.captures.add(image); merged=window.captures.image()
+                    QApplication.clipboard().setImage(merged)
+                    assert QApplication.clipboard().image().height()==64
+                    window.captures.clear()
+                    with tempfile.TemporaryDirectory() as folder:
+                        path=Path(folder)/'second.pdf'; path.write_bytes(Path(window.doc.path).read_bytes())
+                        window.open(str(path)); assert window.file_tabs.count()==2
+                        window.file_tabs.setCurrentIndex(0); window.close_tab(1)
+                    result_path.write_text('ok'); dialog.close(); window.close(); app.exit(0)
+                except Exception as exc:
+                    result_path.write_text('failed: '+str(exc)); dialog.close(); window.close(); app.exit(1)
             elif time.monotonic()>deadline:
                 result_path.write_text('failed: '+dialog.error.text()); check.stop(); dialog.close(); window.close(); app.exit(1)
         check.timeout.connect(smoke_check); check.start()
-    elif len(sys.argv)>1: window.open(sys.argv[1])
+    elif len(sys.argv)>1:
+        for path in sys.argv[1:]: window.open(path)
     sys.exit(app.exec())

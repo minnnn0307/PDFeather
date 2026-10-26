@@ -33,6 +33,11 @@ def icon(name):
         rect(5,3,14,18)
         if name=='fit': line(9,7,15,7); line(9,17,15,17); line(12,7,12,17)
         else: line(2,12,22,12); line(2,12,5,9); line(2,12,5,15); line(22,12,19,9); line(22,12,19,15)
+    elif name=='text':
+        line(5,5,19,5); line(12,5,12,20); line(8,20,16,20); line(5,5,5,8); line(19,5,19,8)
+    elif name in ('capture','multi'):
+        rect(4,5,16,14); line(8,3,8,7); line(2,9,6,9); line(18,15,22,15); line(16,17,16,21)
+        if name=='multi': line(8,10,16,10); line(8,14,16,14)
     elif name=='settings':
         p.drawEllipse(QRectF(6,6,12,12)); p.drawEllipse(QRectF(10,10,4,4))
         for x1,y1,x2,y2 in [(12,2,12,5),(12,19,12,22),(2,12,5,12),(19,12,22,12),(5,5,7,7),(17,17,19,19),(5,19,7,17),(17,7,19,5)]: line(x1,y1,x2,y2)
