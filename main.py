@@ -18,6 +18,7 @@ from layout import parse_pages, grid, placement, print_cells
 from widgets import TitleBar, ThumbnailDelegate, tool, set_theme, icon, CategorySections, ViewModePicker
 from preferences import Preferences, SettingsPanel
 from popups import PopupSheet, resize_edges
+from window_frame import WindowFrame
 from branding import application_icon, logo_pixmap
 from themes import PALETTES, stylesheet, apply_palette
 from rendering import visible_tiles
@@ -148,14 +149,20 @@ class Canvas(CanvasInteraction,QWidget):
         painter.fillRect(event.rect(), QColor(self.reader.theme['canvas']))
         w = self.reader
         if not w.doc:
-            center=self.rect().center(); wordfont=QFont('Segoe UI',28,QFont.Weight.DemiBold)
-            painter.setFont(wordfont); metrics=QFontMetrics(wordfont); width=64+18+metrics.horizontalAdvance('PDFeather')
-            x=center.x()-width/2; y=center.y()-65
-            painter.drawPixmap(round(x),round(y),logo_pixmap(64,w.theme_name=='dark',self.devicePixelRatioF()))
-            painter.setPen(QColor(w.theme['text'])); painter.drawText(QRectF(x+82,y, width-82,64),Qt.AlignmentFlag.AlignVCenter,'PDFeather')
-            painter.setFont(QFont('Segoe UI',11)); painter.setPen(QColor(w.theme['muted']))
-            painter.drawText(QRectF(8,center.y()+20,self.width()-16,48),Qt.AlignmentFlag.AlignCenter|Qt.TextFlag.TextWordWrap,'PDF 파일을 열거나 이 창으로 끌어 놓으세요')
-            painter.setFont(QFont('Segoe UI',10)); painter.drawText(QRectF(0,center.y()+73,self.width(),24),Qt.AlignmentFlag.AlignCenter,'Ctrl+O · 파일 열기')
+            key=(w.theme_name,self.devicePixelRatioF())
+            if getattr(self,'welcome_key',None)!=key:
+                dpr=key[1]; image=QPixmap(round(400*dpr),round(210*dpr));image.setDevicePixelRatio(dpr);image.fill(Qt.GlobalColor.transparent)
+                ink=QPainter(image);ink.setRenderHint(QPainter.RenderHint.Antialiasing)
+                font=QFont('Segoe UI',28,QFont.Weight.DemiBold);ink.setFont(font)
+                width=82+QFontMetrics(font).horizontalAdvance('PDFeather');x=(400-width)/2
+                ink.drawPixmap(round(x),0,logo_pixmap(64,w.theme_name=='dark',dpr))
+                ink.setPen(QColor(w.theme['text']));ink.drawText(QRectF(x+82,0,width-82,64),Qt.AlignmentFlag.AlignVCenter,'PDFeather')
+                ink.setFont(QFont('Segoe UI',11));ink.setPen(QColor(w.theme['muted']))
+                ink.drawText(QRectF(8,84,384,48),Qt.AlignmentFlag.AlignCenter|Qt.TextFlag.TextWordWrap,'PDF 파일을 열거나 이 창으로 끌어 놓으세요')
+                ink.setFont(QFont('Segoe UI',10));ink.drawText(QRectF(0,137,400,24),Qt.AlignmentFlag.AlignCenter,'Ctrl+O · 파일 열기');ink.end()
+                self.welcome_key=key;self.welcome_image=image
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            painter.drawPixmap(QRectF((self.width()-400)/2,(self.height()-180)/2,400,210),self.welcome_image,QRectF(self.welcome_image.rect()))
             return
         try:
             for i, rect in self.rects:
@@ -452,6 +459,7 @@ class Window(QMainWindow):
         QApplication.instance().installEventFilter(self)
         for widget in [self,*self.findChildren(QWidget)]: widget.setMouseTracking(True)
         self.canvas.arrange()
+        self.frame_outline=WindowFrame(self); self.frame_outline.show(); self.frame_outline.sync()
         self.apply_theme(self.theme_name)
         self.update_checker=UpdateChecker(self); self.update_checker.completed.connect(self.on_update_checked); self.update_checker.failed.connect(self.on_update_failed)
         self.settings_panel.check_update_requested.connect(lambda:self.check_updates(True)); self.settings_panel.open_release_requested.connect(self.open_update_page)
@@ -613,7 +621,9 @@ class Window(QMainWindow):
         if event.type()==QEvent.Type.DevicePixelRatioChange and obj==self:
             self.titlebar.brand.setPixmap(logo_pixmap(16,self.theme_name=='dark',self.devicePixelRatioF())); self.canvas.update()
         if event.type()==QEvent.Type.Resize and obj==self.scroll.viewport():
-            QTimer.singleShot(0,self.refit)
+            if not self.doc:
+                self.canvas.resize(event.size()); self.canvas.update()
+            else: QTimer.singleShot(0,self.refit)
         if event.type()==QEvent.Type.MouseButtonPress and event.button()==Qt.MouseButton.LeftButton and not self.isMaximized() and isinstance(obj,QWidget) and obj.window()==self:
             pt=self.mapFromGlobal(event.globalPosition().toPoint()); edges=resize_edges(pt,self.size())
             if edges and self.windowHandle() and self.windowHandle().startSystemResize(edges): return True
