@@ -30,6 +30,7 @@ from app_meta import NAME,VERSION
 from updates import UpdateChecker
 from update_install import InstallerDownload,launch_installer
 from instance import SingleInstance
+from zoom_render import ZoomRenderer
 
 
 STYLE = stylesheet('dark')
@@ -74,6 +75,7 @@ class Document:
         return image
 
     def remember(self,key,image):
+        if key in self.cache:self.cache_bytes-=self.cache.pop(key).sizeInBytes()
         self.cache[key]=image; self.cache_bytes+=image.sizeInBytes()
         while self.cache_bytes>self.cache_limit and self.cache:
             _,old=self.cache.popitem(last=False); self.cache_bytes-=old.sizeInBytes()
@@ -111,6 +113,9 @@ class Canvas(CanvasInteraction,QWidget):
         self.reader = window
         self.rects = []
         self.init_interactions()
+        self.zoom_preview=[];self.async_zoom=False;self.async_failed=False
+        self.zoom_idle=QTimer(self);self.zoom_idle.setSingleShot(True);self.zoom_idle.setInterval(110);self.zoom_idle.timeout.connect(self.zoom_settled)
+        self.zoom_renderer=ZoomRenderer(self);self.zoom_renderer.ready.connect(self.zoom_ready);self.zoom_renderer.failed.connect(self.zoom_error)
 
     # PySide requires virtual event overrides on the concrete QObject subclass.
     def mousePressEvent(self,event): CanvasInteraction.mousePressEvent(self,event)
@@ -118,6 +123,68 @@ class Canvas(CanvasInteraction,QWidget):
     def mouseReleaseEvent(self,event): CanvasInteraction.mouseReleaseEvent(self,event)
     def keyPressEvent(self,event): CanvasInteraction.keyPressEvent(self,event)
     def contextMenuEvent(self,event): CanvasInteraction.contextMenuEvent(self,event)
+
+    def reset_zoom_rendering(self):
+        self.zoom_idle.stop();self.zoom_renderer.close();self.zoom_preview=[];self.async_zoom=False;self.async_failed=False
+
+    def zoom_ready(self,key,image):
+        if self.reader.doc:self.reader.doc.remember(key,image)
+        self.update()
+        if not self.zoom_renderer.requests:
+            self.zoom_preview=[];self.reader.queue_thumbs()
+
+    def zoom_error(self,message):
+        self.zoom_renderer.close();self.async_failed=True;self.async_zoom=False;self.update()
+
+    def zoom_settled(self):
+        self.async_zoom=not self.reader.prefs.get('optimization') and not self.async_failed
+        if not self.async_zoom:self.zoom_preview=[]
+        self.update();self.reader.queue_thumbs()
+
+    def begin_wheel_zoom(self):
+        if not self.zoom_idle.isActive():
+            self.zoom_preview=[];budget=0
+            for key,image in list(self.reader.doc.cache.items()):
+                if isinstance(key,tuple) and key[0]=='tile':
+                    _,index,fw,fh,x,y,width,height=key
+                    rect=next((r for i,r in self.rects if i==index),None)
+                    if rect is None or fw!=math.ceil(rect.width()*self.devicePixelRatioF()) or fh!=math.ceil(rect.height()*self.devicePixelRatioF()):continue
+                    target=QRectF(rect.x()+x/fw*rect.width(),rect.y()+y/fh*rect.height(),width/fw*rect.width(),height/fh*rect.height())
+                    viewport=QRectF(self.mapFrom(self.reader.scroll.viewport(),QPoint()),self.reader.scroll.viewport().size())
+                    if not target.intersects(viewport):continue
+                    normalized=QRectF(x/fw,y/fh,width/fw,height/fh)
+                elif isinstance(key,tuple) and isinstance(key[0],int):index=key[0];normalized=QRectF(0,0,1,1)
+                else:continue
+                preview=image.scaled(384,384,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.FastTransformation)
+                budget+=preview.sizeInBytes()
+                if budget>8*1024*1024:break
+                self.zoom_preview.append((index,normalized,preview))
+        self.zoom_renderer.invalidate();self.async_zoom=not self.reader.prefs.get('optimization') and not self.async_failed
+        self.zoom_idle.start();self.reader.thumb_timer.stop()
+
+    def paint_zoom_page(self,painter,index,rect):
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform,not self.zoom_idle.isActive())
+        item=self.reader.thumbs.item(index)
+        if item is not None and not item.icon().isNull():
+            thumb=item.icon().pixmap(130,185);painter.drawPixmap(rect,thumb,QRectF(thumb.rect()))
+        for page,normalized,image in self.zoom_preview:
+            if page==index:
+                painter.drawImage(QRectF(rect.x()+normalized.x()*rect.width(),rect.y()+normalized.y()*rect.height(),normalized.width()*rect.width(),normalized.height()*rect.height()),image)
+        if self.zoom_idle.isActive():return
+        w=self.reader;requests=[]
+        viewport=QRectF(self.mapFrom(w.scroll.viewport(),QPoint()),w.scroll.viewport().size())
+        if w.prefs.get('render_mode')=='tiles':
+            for tile,target in visible_tiles(rect,viewport,self.devicePixelRatioF()):
+                key=('tile',index,*tile)
+                if key in w.doc.cache:
+                    w.doc.cache.move_to_end(key);painter.drawImage(target,w.doc.cache[key])
+                else:requests.append((key,(index,*tile)))
+        else:
+            scale=min(w.zoom*self.devicePixelRatioF(),math.sqrt(w.doc.pixel_limit/(w.doc.sizes[index][0]*w.doc.sizes[index][1])))
+            key=(index,round(scale,3))
+            if key in w.doc.cache:painter.drawImage(rect,w.doc.cache[key])
+            else:requests.append((key,(index,scale)))
+        self.zoom_requests.extend(requests)
 
     def arrange(self):
         w = self.reader
@@ -167,10 +234,13 @@ class Canvas(CanvasInteraction,QWidget):
             painter.drawPixmap(QRectF((self.width()-400)/2,(self.height()-180)/2,400,210),self.welcome_image,QRectF(self.welcome_image.rect()))
             return
         try:
+            self.zoom_requests=[]
             for i, rect in self.rects:
                 if rect.intersects(QRectF(event.rect())):
                     painter.fillRect(rect, Qt.GlobalColor.white)
-                    if w.prefs.get('render_mode')=='tiles':
+                    if self.zoom_idle.isActive() or self.async_zoom:
+                        self.paint_zoom_page(painter,i,rect)
+                    elif w.prefs.get('render_mode')=='tiles':
                         # Only visible physical-pixel tiles are rendered; DPR is part of the cache key.
                         viewport_rect=QRectF(self.mapFrom(w.scroll.viewport(),QPoint(0,0)).x(),self.mapFrom(w.scroll.viewport(),QPoint(0,0)).y(),w.scroll.viewport().width(),w.scroll.viewport().height())
                         visible=QRectF(event.rect()).intersected(viewport_rect)
@@ -189,6 +259,7 @@ class Canvas(CanvasInteraction,QWidget):
                         painter.setBrush(QColor(255,151,45,145) if match_no==w.match_index else QColor(255,220,40,100))
                         for l,b,r,t in boxes:
                             painter.drawRect(QRectF(rect.x()+l*w.zoom,rect.y()+(w.doc.sizes[i][1]-t)*w.zoom,(r-l)*w.zoom,(t-b)*w.zoom))
+            if self.async_zoom and not self.zoom_idle.isActive():self.zoom_renderer.offer(w.doc,self.zoom_requests)
             self.paint_drag(painter)
         except Exception as exc:
             painter.drawText(event.rect(), Qt.AlignmentFlag.AlignCenter, f'렌더링 오류: {exc}')
@@ -620,6 +691,7 @@ class Window(QMainWindow):
             if value and self.enable_update_checks: self.update_timer.start()
             elif not value and not self.update_manual: self.update_checker.cancel(); self.settings_panel.update_button.setEnabled(True)
         elif key=='optimization':
+            self.canvas.reset_zoom_rendering()
             for i in range(self.file_tabs.count()): self.configure_document(self.file_tabs.tabData(i).doc)
             self.rebuild_thumbnails();self.queue_thumbs();self.canvas.update()
         elif key=='render_mode':
@@ -674,7 +746,7 @@ class Window(QMainWindow):
             delta=event.angleDelta().y() or event.pixelDelta().y()
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 factor=1+self.prefs.get('wheel_step')/100
-                if delta: self.set_zoom(self.zoom*(factor if delta>0 else 1/factor),event.position().toPoint())
+                if delta: self.set_zoom(self.zoom*(factor if delta>0 else 1/factor),event.position().toPoint(),interactive=True)
                 event.accept(); return True
             if self.doc and self.prefs.get('edge_flip') and self.mode.currentIndex() in (0,2) and delta:
                 sb=self.scroll.verticalScrollBar()
@@ -846,6 +918,7 @@ class Window(QMainWindow):
         self.thumbs.blockSignals(False)
 
     def activate_tab(self,index):
+        self.canvas.reset_zoom_rendering()
         if index<0: return
         state=self.file_tabs.tabData(index)
         if state is None or state is self.active_tab: return
@@ -877,6 +950,7 @@ class Window(QMainWindow):
         if self.file_tabs.currentIndex()>=0: self.close_tab(self.file_tabs.currentIndex())
 
     def close_tab(self,index):
+        self.canvas.reset_zoom_rendering()
         state=self.file_tabs.tabData(index)
         if state is None: return
         active=state is self.active_tab
@@ -898,7 +972,7 @@ class Window(QMainWindow):
         if not self.thumb_timer.isActive(): self.thumb_timer.start(0)
 
     def render_thumbs(self):
-        if not self.doc or not self.thumbs.isVisible(): return
+        if not self.doc or not self.thumbs.isVisible() or self.canvas.zoom_idle.isActive() or self.canvas.async_zoom and self.canvas.zoom_renderer.pending:return
         visible=self.thumbs.viewport().rect(); first=max(0,self.thumbs.indexAt(visible.topLeft()).row())
         last=self.thumbs.indexAt(visible.bottomLeft()).row()
         if last<first: last=min(self.thumbs.count()-1,first+visible.height()//185+1)
@@ -921,11 +995,12 @@ class Window(QMainWindow):
                     old,_=self.thumb_lru.popitem(last=False); self.thumbs.item(old).setIcon(QIcon())
                 self.thumb_timer.start(1); return
 
-    def set_zoom(self, zoom, anchor=None, keep_fit=False):
+    def set_zoom(self, zoom, anchor=None, keep_fit=False, interactive=False):
         zoom=max(.1,min(10.,zoom))
         if not keep_fit: self.fit_mode=None
         if self.canvas.dragging: self.canvas.cancel_drag()
         if abs(zoom-self.zoom)<.0001: self.canvas.arrange(); return
+        if interactive and self.doc:self.canvas.begin_wheel_zoom()
         viewport=self.scroll.viewport()
         anchor=anchor or viewport.rect().center()
         canvas_point=self.canvas.mapFrom(viewport,anchor)
@@ -998,6 +1073,7 @@ class Window(QMainWindow):
             if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile())
 
     def closeEvent(self, event):
+        self.canvas.reset_zoom_rendering()
         self.closing=True
         if getattr(self,"update_popup",None):self.update_popup.close()
         if getattr(self,'installer_download',None) and self.installer_download.reply:self.installer_download.cancel()
@@ -1053,10 +1129,20 @@ if __name__ == '__main__':
         window.open(sys.argv[2])
         dialog=PrintWindow(window.doc,window); dialog.show()
         result_path=Path(sys.argv[3]); deadline=time.monotonic()+40
+        zoom_smoke={'started':False,'ready':False}
         check=QTimer(); check.setInterval(100)
         def smoke_check():
             pix=dialog.preview_label.pixmap()
             if pix and not pix.isNull():
+                if not zoom_smoke['started']:
+                    zoom_smoke['started']=True
+                    window.canvas.zoom_renderer.ready.connect(lambda *_:zoom_smoke.update(ready=True))
+                    window.set_zoom(window.zoom*1.15,interactive=True)
+                    return
+                if not zoom_smoke['ready']:
+                    if time.monotonic()>deadline:
+                        result_path.write_text('failed: background zoom renderer timed out');dialog.close();window.close();app.exit(1)
+                    return
                 check.stop()
                 try:
                     from PySide6.QtNetwork import QSslSocket
