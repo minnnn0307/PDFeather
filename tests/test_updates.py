@@ -71,12 +71,12 @@ class UpdateTests(unittest.TestCase):
                 window.enable_update_checks=True
                 reply=FakeReply(json.dumps([release('9.0.0')]).encode()); manager=FakeManager(reply); window.update_checker.manager=manager
                 window.check_updates(False); self.assertEqual(len(manager.requests),1); reply.finished.emit()
-                self.assertFalse(window.update_bar.isHidden()); self.assertIn('9.0.0',window.update_label.text())
+                self.assertTrue(window.update_popup.isVisible()); self.assertTrue(window.update_bar.isHidden())
                 window.dismiss_update(); self.assertTrue(window.update_bar.isHidden())
                 window.check_updates(False); self.assertEqual(len(manager.requests),1)
                 reply=FakeReply(json.dumps([release('9.0.0')]).encode()); window.update_checker.manager=FakeManager(reply)
                 prefs.set('auto_update',False); window.check_updates(False); self.assertFalse(window.update_checker.manager.requests)
-                window.check_updates(True); reply.finished.emit(); self.assertFalse(window.update_bar.isHidden())
+                window.check_updates(True); reply.finished.emit(); self.assertTrue(window.update_popup.isVisible())
             finally: window.close()
 
     def test_identity_metadata_in_both_languages(self):

@@ -59,7 +59,14 @@ Name: desktopicon; Description: "{cm:DesktopShortcut}"; Flags: unchecked
 [Run]
 Filename: "{app}\PDFeather.exe"; Description: "{cm:LaunchApp}"; Flags: nowait postinstall skipifsilent
 
+Filename: "{app}\PDFeather.exe"; Flags: nowait; Check: IsUpdateInstall
+
 [Code]
+function IsUpdateInstall: Boolean;
+begin
+  Result := ExpandConstant('{param:PDFEATHERUPDATE|0}') = '1';
+end;
+
 procedure SHChangeNotify(wEventId: Integer; uFlags: Cardinal; dwItem1, dwItem2: Integer);
   external 'SHChangeNotify@shell32.dll stdcall';
 procedure CurStepChanged(CurStep: TSetupStep);

@@ -5,7 +5,7 @@ from app_meta import VERSION,publisher_for_language
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QComboBox,QCheckBox,QSpinBox,
     QDoubleSpinBox,QGroupBox,QLabel,QPushButton,QGridLayout,QHBoxLayout,QListWidget,QStackedWidget,QScrollArea)
 
-DEFAULTS=dict(auto_update=True,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,scroll_step=100,
+DEFAULTS=dict(auto_update=True,optimization=False,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,scroll_step=100,
     edge_flip=True,remember_document=True,remember_geometry=True,print_paper='A4',print_duplex=0,
     margin_left=10.,margin_top=10.,margin_right=10.,margin_bottom=10.,print_gap=2.)
 
@@ -92,6 +92,9 @@ class SettingsPanel(QWidget):
         self.check(updates,'새 버전 자동 확인 (하루 한 번)','auto_update')
         notice=QLabel('업데이트 확인에만 GitHub에 연결합니다. 문서는 전송하지 않습니다.\n인터넷이 없으면 조용히 건너뛰며 PDF 열기·인쇄는 계속 사용할 수 있습니다.'); notice.setObjectName('mutedText'); notice.setWordWrap(True); updates.addRow(notice); general.addStretch()
         reading=page('문서 표시','화질과 문서 탐색 방식을 설정합니다.')
+        performance=group(reading,'성능 최적화')
+        self.check(performance,'극한 메모리 절약 모드','optimization')
+        note=QLabel('화면 캐시 8 MiB, 썸네일 기본 12개, 미리 로딩·전환 효과 축소. 고해상도 화면의 표시 해상도와 페이지 이미지 품질을 낮춰 메모리를 절약합니다. 문서 자체와 인쇄·캡처 원본 품질은 유지됩니다.'); note.setWordWrap(True); note.setObjectName('mutedText'); performance.addRow(note)
         quality=group(reading,'렌더링 품질')
         self.combo(quality,'표시 모드','render_mode',[('선명하게 · 고해상도 타일','tiles'),('메모리 절약 · 페이지 이미지','page')])
         hint=QLabel('타일 모드는 화면에 보이는 영역을 모니터 배율에 맞춰 다시 그립니다.\n페이지 모드는 전체 이미지를 사용하며 큰 배율에서는 화질이 제한됩니다.'); hint.setObjectName('mutedText'); hint.setWordWrap(True); quality.addRow(hint)
@@ -122,7 +125,7 @@ class SettingsPanel(QWidget):
         updates=group(about,'업데이트 확인')
         self.update_button=QPushButton('지금 확인'); self.update_button.clicked.connect(self.check_update_requested.emit); updates.addRow(self.update_button)
         self.update_status=QLabel('새 버전 확인은 인터넷 연결이 필요합니다.'); self.update_status.setWordWrap(True); self.update_status.setObjectName('mutedText'); updates.addRow(self.update_status)
-        self.release_button=QPushButton('배포 페이지 열기'); self.release_button.clicked.connect(self.open_release_requested.emit); self.release_button.hide(); updates.addRow(self.release_button)
+        self.release_button=QPushButton('업데이트 설치'); self.release_button.clicked.connect(self.open_release_requested.emit); self.release_button.hide(); updates.addRow(self.release_button)
         reset=QPushButton('모든 설정을 기본값으로 복원'); reset.clicked.connect(self.reset); about.addWidget(reset); about.addStretch()
         self.categories.currentRowChanged.connect(self.stack.setCurrentIndex); self.categories.setCurrentRow(0)
 

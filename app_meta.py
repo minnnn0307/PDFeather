@@ -1,6 +1,6 @@
 """Single source of application identity and release version."""
 NAME='PDFeather'
-VERSION='1.9.1'
+VERSION='1.10.0'
 PUBLISHER_KO='조민혁'
 PUBLISHER_EN='Minhyeok Cho'
 REPOSITORY='minnnn0307/PDFeather'

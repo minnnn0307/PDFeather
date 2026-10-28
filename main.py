@@ -28,6 +28,7 @@ from tabs import DocumentTab
 from interaction import CanvasInteraction
 from app_meta import NAME,VERSION
 from updates import UpdateChecker
+from update_install import InstallerDownload,launch_installer
 from instance import SingleInstance
 
 
@@ -44,11 +45,12 @@ class Document:
         self.sizes = [self.pdf.get_page_size(i) for i in range(len(self.pdf))]
         self.cache = OrderedDict()
         self.cache_bytes = 0
+        self.cache_limit=64*1024*1024; self.pixel_limit=16_000_000
 
     def image(self, index, scale, cached=True):
         # Bound each bitmap to 16 megapixels, and total screen cache to 64 MiB.
         w, h = self.sizes[index]
-        scale = min(scale, math.sqrt(16_000_000 / (w*h)))
+        scale = min(scale, math.sqrt(self.pixel_limit / (w*h)))
         key = (index, round(scale, 3))
         if cached and key in self.cache:
             self.cache.move_to_end(key)
@@ -66,14 +68,14 @@ class Document:
         if cached:
             self.cache[key] = image
             self.cache_bytes += image.sizeInBytes()
-            while self.cache_bytes > 64*1024*1024 and self.cache:
+            while self.cache_bytes > self.cache_limit and self.cache:
                 _, old = self.cache.popitem(last=False)
                 self.cache_bytes -= old.sizeInBytes()
         return image
 
     def remember(self,key,image):
         self.cache[key]=image; self.cache_bytes+=image.sizeInBytes()
-        while self.cache_bytes>64*1024*1024 and self.cache:
+        while self.cache_bytes>self.cache_limit and self.cache:
             _,old=self.cache.popitem(last=False); self.cache_bytes-=old.sizeInBytes()
         return image
 
@@ -172,7 +174,7 @@ class Canvas(CanvasInteraction,QWidget):
                         # Only visible physical-pixel tiles are rendered; DPR is part of the cache key.
                         viewport_rect=QRectF(self.mapFrom(w.scroll.viewport(),QPoint(0,0)).x(),self.mapFrom(w.scroll.viewport(),QPoint(0,0)).y(),w.scroll.viewport().width(),w.scroll.viewport().height())
                         visible=QRectF(event.rect()).intersected(viewport_rect)
-                        for tile,target in visible_tiles(rect,visible,self.devicePixelRatioF()):
+                        for tile,target in visible_tiles(rect,visible,min(1.,self.devicePixelRatioF()) if w.prefs.get('optimization') else self.devicePixelRatioF()):
                             painter.drawImage(target,w.doc.tile(i,*tile))
                     else:
                         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -563,7 +565,34 @@ class Window(QMainWindow):
         self.update_info=info; self.settings_panel.release_button.show(); self.settings_panel.update_status.setText(f'새 버전 {info.version}을 사용할 수 있습니다.')
         dismissed=self.prefs.storage.value('updates/dismissed_version','')
         if self.update_manual or dismissed!=info.version:
-            self.update_label.setText(f'새 버전 {info.version}이 있습니다. (현재 {VERSION})'); self.update_bar.show()
+            self.show_update_popup()
+
+    def show_update_popup(self):
+        if getattr(self,"closing",False):return
+        if QApplication.activeModalWidget() is not None:
+            QTimer.singleShot(1000,self.show_update_popup); return
+        if getattr(self,'update_popup',None) is not None and self.update_popup.isVisible():return
+        if not self.update_info:return
+        popup=PopupSheet(self,'PDFeather 업데이트',QSize(480,340));self.update_popup=popup
+        label=QLabel(f'새 버전 {self.update_info.version}');label.setObjectName('sectionTitle');popup.body.addWidget(label)
+        detail=QLabel('지금 설치하면 PDFeather가 종료된 뒤 업데이트되고 다시 실행됩니다.');detail.setWordWrap(True);popup.body.addWidget(detail)
+        bar=QProgressBar();bar.hide();popup.body.addWidget(bar)
+        actions=QHBoxLayout();page=QPushButton('배포 페이지');page.clicked.connect(lambda:QDesktopServices.openUrl(QUrl(self.update_info.url)));actions.addWidget(page);later=QPushButton('나중에');later.clicked.connect(self.dismiss_update);actions.addWidget(later)
+        install=QPushButton('업데이트 설치');install.setObjectName('primaryButton');actions.addWidget(install);popup.body.addLayout(actions)
+        download=InstallerDownload(popup);self.installer_download=download
+        def failed(message):
+            detail.setText(message);bar.hide();install.setEnabled(True);later.setEnabled(True);popup.close_button.setEnabled(True)
+        def ready(path):
+            try:launch_installer(path)
+            except Exception as exc:failed(str(exc));return
+            popup.accept();self.close()
+        def begin():
+            if self.external_draining:return
+            install.setEnabled(False);later.setEnabled(False);popup.close_button.setEnabled(False);bar.show();bar.setRange(0,100);detail.setText('업데이트를 내려받고 검증하고 있습니다…');download.start(self.update_info)
+        download.progress.connect(lambda received,total:bar.setValue(round(received*100/total)))
+        download.failed.connect(failed);download.completed.connect(ready);install.clicked.connect(begin)
+        popup.finished.connect(lambda _:download.cancel() if download.reply else None)
+        popup.show()
 
     def on_update_failed(self,message):
         self.settings_panel.update_button.setEnabled(True); self.settings_panel.update_status.setText(message)
@@ -571,20 +600,28 @@ class Window(QMainWindow):
 
     def dismiss_update(self):
         self.update_bar.hide()
+        if getattr(self,'update_popup',None):self.update_popup.close()
         if self.update_info:
             self.prefs.storage.setValue('updates/dismissed_version',self.update_info.version); self.prefs.storage.sync()
 
     def open_update_page(self):
-        if self.update_info: QDesktopServices.openUrl(QUrl(self.update_info.url))
+        if self.update_info:self.show_update_popup()
 
     def show_settings(self):
         self.settings_dialog.show(); self.settings_dialog.raise_(); self.settings_dialog.activateWindow()
+
+    def configure_document(self,doc):
+        lean=self.prefs.get('optimization');doc.cache_limit=(8 if lean else 64)*1024*1024;doc.pixel_limit=2_000_000 if lean else 16_000_000
+        doc.cache.clear();doc.cache_bytes=0
 
     def preference_changed(self,key,value):
         if key=='theme': self.apply_theme(value)
         elif key=='auto_update' and hasattr(self,'update_checker'):
             if value and self.enable_update_checks: self.update_timer.start()
             elif not value and not self.update_manual: self.update_checker.cancel(); self.settings_panel.update_button.setEnabled(True)
+        elif key=='optimization':
+            for i in range(self.file_tabs.count()): self.configure_document(self.file_tabs.tabData(i).doc)
+            self.rebuild_thumbnails();self.queue_thumbs();self.canvas.update()
         elif key=='render_mode':
             if self.doc: self.doc.cache.clear(); self.doc.cache_bytes=0
             self.canvas.update()
@@ -815,7 +852,7 @@ class Window(QMainWindow):
         self.save_tab_state(); self.canvas.cancel_drag(); self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
         if self.doc: self.doc.cache.clear(); self.doc.cache_bytes=0
         self.restoring_tab=True; self.suppress_scroll=True
-        self.active_tab=state; self.doc=state.doc; self.selection=state.selection; self.current=state.current; self.zoom=state.zoom; self.fit_mode=state.fit_mode
+        self.active_tab=state; self.doc=state.doc; self.configure_document(self.doc); self.selection=state.selection; self.current=state.current; self.zoom=state.zoom; self.fit_mode=state.fit_mode
         self.mode.blockSignals(True); self.mode.setCurrentIndex(state.mode); self.mode.blockSignals(False)
         self.zoom_box.blockSignals(True); self.zoom_box.setValue(round(self.zoom*100)); self.zoom_box.blockSignals(False)
         self.matches=state.matches; self.match_index=state.match_index; self.search_query=state.search_query; self.search_page=state.search_page
@@ -865,7 +902,8 @@ class Window(QMainWindow):
         visible=self.thumbs.viewport().rect(); first=max(0,self.thumbs.indexAt(visible.topLeft()).row())
         last=self.thumbs.indexAt(visible.bottomLeft()).row()
         if last<first: last=min(self.thumbs.count()-1,first+visible.height()//185+1)
-        near=range(max(0,first-12),min(self.thumbs.count(),last+13))
+        padding=0 if self.prefs.get('optimization') else 12
+        near=range(max(0,first-padding),min(self.thumbs.count(),last+padding+1))
         indices=sorted(near,key=lambda i:0 if first<=i<=last else min(abs(i-first),abs(i-last)))
         for i in range(first,last+1):
             if i in self.thumb_lru: self.thumb_lru.move_to_end(i)
@@ -874,12 +912,12 @@ class Window(QMainWindow):
             if item.icon().isNull() and not item.data(Qt.ItemDataRole.UserRole+11):
                 try:
                     item.setIcon(QIcon(QPixmap.fromImage(self.doc.image(i,112/self.doc.sizes[i][0],cached=False))))
-                    item.setData(Qt.ItemDataRole.UserRole+10,time.monotonic()); self.thumb_lru[i]=True
-                    if first<=i<=last:
+                    item.setData(Qt.ItemDataRole.UserRole+10,0. if self.prefs.get('optimization') else time.monotonic()); self.thumb_lru[i]=True
+                    if first<=i<=last and not self.prefs.get('optimization'):
                         for delay in (30,70,110,160): QTimer.singleShot(delay,self.thumbs.viewport().update)
                 except Exception:
                     item.setData(Qt.ItemDataRole.UserRole+11,True); item.setToolTip('미리보기를 생성할 수 없습니다.')
-                while len(self.thumb_lru)>160:
+                while len(self.thumb_lru)>(max(12,last-first+1) if self.prefs.get('optimization') else 160):
                     old,_=self.thumb_lru.popitem(last=False); self.thumbs.item(old).setIcon(QIcon())
                 self.thumb_timer.start(1); return
 
@@ -960,6 +998,9 @@ class Window(QMainWindow):
             if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile())
 
     def closeEvent(self, event):
+        self.closing=True
+        if getattr(self,"update_popup",None):self.update_popup.close()
+        if getattr(self,'installer_download',None) and self.installer_download.reply:self.installer_download.cancel()
         self.clear_resize_cursor()
         self.save_tab_state()
         for i in range(self.file_tabs.count()): self.prefs.save_document(self.file_tabs.tabData(i))

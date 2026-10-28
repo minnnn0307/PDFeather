@@ -1,4 +1,4 @@
-"""Asynchronous, bounded, stable-release notifications. Never downloads or executes installers."""
+"""Asynchronous, bounded, stable-release notifications. Installer downloads are handled separately after an explicit click."""
 import json
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -14,6 +14,9 @@ API_URL=f'https://api.github.com/repos/{REPOSITORY}/releases?per_page=20'
 class UpdateInfo:
     version:str
     url:str
+    download_url:str=""
+    sha256:str=""
+    size:int=0
 
 
 def find_update(data,current=VERSION):
@@ -28,7 +31,8 @@ def find_update(data,current=VERSION):
         number=tag.removeprefix('v')
         assets=release.get('assets',[])
         if not isinstance(assets,list) or not any(isinstance(a,dict) and a.get('name')==f'{NAME}-{number}-Setup.exe' and a.get('state')=='uploaded' for a in assets): continue
-        candidates.append((version,UpdateInfo(number,f'{RELEASES_URL}/tag/{quote(tag,safe="")}')))
+        asset=next(a for a in assets if isinstance(a,dict) and a.get("name")==f"{NAME}-{number}-Setup.exe" and a.get("state")=="uploaded")
+        candidates.append((version,UpdateInfo(number,f'{RELEASES_URL}/tag/{quote(tag,safe="")}',asset.get("browser_download_url",""),str(asset.get("digest","")).removeprefix("sha256:"),asset.get("size",0))))
     return max(candidates,key=lambda item:item[0])[1] if candidates else None
 
 

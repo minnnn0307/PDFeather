@@ -91,6 +91,19 @@ jobs:
               if ($command -ne $expectedCommand) { throw 'PDF association command mismatch' }
               $openWith = Get-Item 'HKCU:\Software\Classes\.pdf\OpenWithProgids'
               if ('PDFeather.PDF' -notin $openWith.GetValueNames()) { throw 'PDF Open With registration is missing' }
+              if ($language -eq 'english') {
+                $env:QT_QPA_PLATFORM = 'offscreen'
+                $upgrade = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/PDFEATHERUPDATE=1',"/DIR=$destination") -PassThru
+                if (-not $upgrade.WaitForExit(60000) -or $upgrade.ExitCode -ne 0) { throw 'Update installation failed' }
+                $deadline = [DateTime]::UtcNow.AddSeconds(20)
+                $launched = @()
+                do {
+                  $launched = @(Get-Process -Name PDFeather -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $destination 'PDFeather.exe') })
+                  if ($launched.Count -eq 0) { Start-Sleep -Milliseconds 200 }
+                } while ($launched.Count -eq 0 -and [DateTime]::UtcNow -lt $deadline)
+                if ($launched.Count -eq 0) { throw 'Updated application did not restart' }
+                $launched | Stop-Process -Force
+              }
             } finally {
               $uninstall = Start-Process -FilePath (Join-Path $destination 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
               if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }

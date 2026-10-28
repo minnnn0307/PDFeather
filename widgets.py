@@ -203,6 +203,10 @@ class TitleBar(QWidget):
             bounds=screen.availableGeometry()
             if bounds.left()<=point.x()<=bounds.right() and point.y()<=bounds.top()+8:
                 self.reader.showMaximized()
+            elif point.x()<=bounds.left()+8 or point.x()>=bounds.right()-8:
+                self.reader.showNormal()
+                half=bounds.width()//2;left=point.x()<=bounds.left()+8
+                self.reader.setGeometry(bounds.left() if left else bounds.left()+half,bounds.top(),half if left else bounds.width()-half,bounds.height())
         self.drag_origin=None; self.dragging=False; self.sync_maximize_icon(); event.accept()
 
     def mouseDoubleClickEvent(self,event):
