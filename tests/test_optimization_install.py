@@ -39,6 +39,30 @@ class OptimizationInstallTests(unittest.TestCase):
    else:reply.finished.emit()
    if bad or cancel:self.assertFalse(results);self.assertTrue(errors);self.assertFalse(downloader.path.exists())
    else:self.assertEqual(Path(results[0]).read_bytes(),data);self.assertIsNone(downloader.reply);downloader.cleanup()
+ def test_redirects_expired_urls_and_http_diagnostics(self):
+  from PySide6.QtCore import QUrl
+  from PySide6.QtNetwork import QNetworkRequest
+  data=b'MZtest';info=UpdateInfo('9.0.0','','https://github.com/minnnn0307/PDFeather/releases/download/v9.0.0/PDFeather-9.0.0-Setup.exe',hashlib.sha256(data).hexdigest(),len(data))
+  class Response(Reply):
+   def __init__(self,status,body=b'',location=''):super().__init__(body);self.status=status;self.location=location
+   def attribute(self,key):
+    return QUrl(self.location) if key==QNetworkRequest.Attribute.RedirectionTargetAttribute else self.status
+  class Chain:
+   def __init__(self,replies):self.replies=list(replies);self.urls=[]
+   def get(self,request):self.urls.append(request.url().toString());return self.replies.pop(0)
+  for status,location,success in [(302,'https://release-assets.githubusercontent.com/file',True),(307,'https://objects.githubusercontent.com/file',True),(302,'http://release-assets.githubusercontent.com/file',False),(302,'https://evil.example/file',False),(500,'',False)]:
+   first=Response(status,b'<html>redirect body</html>',location);last=Response(200,data)
+   downloader=InstallerDownload();downloader.manager=Chain([first,last]);done=[];errors=[];downloader.completed.connect(done.append);downloader.failed.connect(errors.append)
+   downloader.start(info);first.readyRead.emit();first.finished.emit()
+   if success:last.finished.emit();self.assertTrue(done);self.assertEqual(Path(done[0]).read_bytes(),data)
+   else:self.assertTrue(errors);self.assertFalse(done)
+   if status==500:self.assertIn('HTTP 500',errors[0])
+   downloader.cleanup()
+  expired=Response(618);redirect=Response(302,location='https://release-assets.githubusercontent.com/fresh');last=Response(200,data)
+  downloader=InstallerDownload();downloader.manager=Chain([expired,redirect,last]);done=[];downloader.completed.connect(done.append)
+  downloader.start(info);expired.finished.emit();redirect.finished.emit();last.finished.emit()
+  self.assertTrue(done);self.assertNotEqual(downloader.manager.urls[0],downloader.manager.urls[1]);downloader.cleanup()
+
  def test_explicit_popup_click_before_install(self):
   from PySide6.QtWidgets import QPushButton
   data=b'MZtest';info=UpdateInfo('9.0.0','https://github.com/minnnn0307/PDFeather/releases/tag/v9.0.0','https://github.com/minnnn0307/PDFeather/releases/download/v9.0.0/PDFeather-9.0.0-Setup.exe',hashlib.sha256(data).hexdigest(),len(data))
