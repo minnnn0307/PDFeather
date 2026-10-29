@@ -47,31 +47,37 @@ class SingleInstance(QObject):
         self.server=QLocalServer(self); self.server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption); self.server.newConnection.connect(self.accept)
         self.owner=False; self.connections=set()
 
+    def try_become_owner(self):
+        if not self.lock.tryLock(0):return False
+        self.owner=True
+        # The lock must be held before removing any stale endpoint.
+        QLocalServer.removeServer(self.name)
+        if not self.server.listen(self.name):
+            self.close();raise RuntimeError('PDFeather 로컬 연결을 열 수 없습니다.')
+        return True
+
     def start_or_forward(self,paths):
-        packet=encode_paths(paths)
-        if self.lock.tryLock(0):
-            self.owner=True
-            # Only the lock owner can remove an endpoint left by a crashed instance.
-            QLocalServer.removeServer(self.name)
-            if not self.server.listen(self.name):
-                self.close(); raise RuntimeError('PDFeather 로컬 연결을 열 수 없습니다.')
-            return True
-        deadline=time.monotonic()+8
-        while time.monotonic()<deadline:
-            socket=QLocalSocket(); socket.connectToServer(self.name)
-            if socket.waitForConnected(150):
-                socket.write(packet)
-                if socket.bytesToWrite() and not socket.waitForBytesWritten(2000):
-                    socket.abort(); raise RuntimeError('기존 PDFeather에 파일을 전달할 수 없습니다.')
-                if socket.waitForReadyRead(3000):
-                    try:
-                        response=json.loads(bytes(socket.readLine()))
-                        if sys.platform=='win32' and isinstance(response.get('pid'),int): ctypes.windll.user32.AllowSetForegroundWindow(response['pid'])
-                    except (ValueError,TypeError): pass
-                socket.disconnectFromServer()
-                return False
-            socket.abort(); QThread.msleep(30)
-        raise RuntimeError('기존 PDFeather가 시작 중이거나 응답하지 않습니다. 잠시 후 다시 열어 주세요.')
+        packet=encode_paths(paths);deadline=time.monotonic()+12
+        while True:
+            # The previous process may have exited while we were connecting or writing.
+            if self.try_become_owner():return True
+            if time.monotonic()>=deadline:break
+            socket=QLocalSocket();socket.connectToServer(self.name)
+            try:
+                if socket.waitForConnected(150):
+                    written=socket.write(packet)
+                    flushed=socket.bytesToWrite()==0 or socket.waitForBytesWritten(1000) or socket.bytesToWrite()==0
+                    if written==len(packet) and flushed:
+                        if socket.bytesAvailable() or socket.waitForReadyRead(1000):
+                            try:
+                                response=json.loads(bytes(socket.readLine()));pid=response.get('pid')
+                                if isinstance(pid,int) and pid>0:
+                                    if sys.platform=='win32':ctypes.windll.user32.AllowSetForegroundWindow(pid)
+                                    return False
+                            except (ValueError,TypeError):pass
+            finally:socket.abort()
+            QThread.msleep(30)
+        raise RuntimeError('기존 PDFeather가 종료 또는 시작 중입니다. 잠시 후 다시 열어 주세요.')
 
     def accept(self):
         while self.server.hasPendingConnections():

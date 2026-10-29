@@ -63,6 +63,14 @@ class OptimizationInstallTests(unittest.TestCase):
   downloader.start(info);expired.finished.emit();redirect.finished.emit();last.finished.emit()
   self.assertTrue(done);self.assertNotEqual(downloader.manager.urls[0],downloader.manager.urls[1]);downloader.cleanup()
 
+ def test_installer_launch_waits_for_parent_and_resets_runtime(self):
+  from update_install import launch_installer
+  with patch('update_install.sys.platform','win32'),patch('update_install.sys.frozen',True,create=True),patch('update_install.subprocess.Popen') as process:
+   launch_installer('installer.exe')
+   args=process.call_args.args[0];env=process.call_args.kwargs['env']
+   self.assertIn('/PDFEATHERWAITPID='+str(os.getpid()),args)
+   self.assertEqual(env['PYINSTALLER_RESET_ENVIRONMENT'],'1')
+
  def test_explicit_popup_click_before_install(self):
   from PySide6.QtWidgets import QPushButton
   data=b'MZtest';info=UpdateInfo('9.0.0','https://github.com/minnnn0307/PDFeather/releases/tag/v9.0.0','https://github.com/minnnn0307/PDFeather/releases/download/v9.0.0/PDFeather-9.0.0-Setup.exe',hashlib.sha256(data).hexdigest(),len(data))

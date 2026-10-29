@@ -17,7 +17,7 @@ def validate_asset(info):
 def launch_installer(path):
     if sys.platform!='win32':raise OSError('자동 설치는 Windows에서 지원됩니다.')
     if not getattr(sys,'frozen',False):raise OSError('자동 설치는 설치된 PDFeather에서 지원됩니다.')
-    subprocess.Popen([str(path),'/SILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/PDFEATHERUPDATE=1'],close_fds=True)
+    subprocess.Popen([str(path),'/SILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/PDFEATHERUPDATE=1',f'/PDFEATHERWAITPID={os.getpid()}'],close_fds=True,env={**os.environ,'PYINSTALLER_RESET_ENVIRONMENT':'1'})
 
 class InstallerDownload(QObject):
     progress=Signal(int,int);completed=Signal(str);failed=Signal(str)

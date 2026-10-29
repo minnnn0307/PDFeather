@@ -14,6 +14,20 @@ class InstanceTests(unittest.TestCase):
         for paths in [['relative.pdf'],['https://host/file.pdf'],['/tmp/not.exe'],['/tmp/no.pdf\0'],{},[None]]:
             with self.assertRaises(ValueError): validate_paths(paths)
 
+    def test_departing_owner_is_retried_after_write_failure(self):
+        from unittest.mock import Mock,patch
+        from PySide6.QtCore import QCoreApplication
+        from instance import SingleInstance
+        app=QCoreApplication.instance() or QCoreApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            instance=SingleInstance(name='unit-exit-race',directory=folder)
+            instance.lock=Mock();instance.lock.tryLock.side_effect=[False,True]
+            instance.server=Mock();instance.server.listen.return_value=True
+            socket=Mock();socket.waitForConnected.return_value=True;socket.write.return_value=-1;socket.bytesToWrite.return_value=0
+            with patch('instance.QLocalSocket',return_value=socket),patch('instance.QLocalServer.removeServer'):
+                self.assertTrue(instance.start_or_forward([]))
+            self.assertTrue(instance.owner);self.assertEqual(instance.lock.tryLock.call_count,2);instance.close()
+
     def test_real_process_forwarding_and_crash_recovery(self):
         if os.name!='nt':
             from PySide6.QtNetwork import QLocalServer

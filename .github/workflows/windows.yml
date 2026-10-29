@@ -71,6 +71,11 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python scripts/verify_instance.py dist/PDFeather/PDFeather.exe
+      - name: Verify restart during previous instance shutdown
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/verify_shutdown_race.py dist/PDFeather/PDFeather.exe
       - name: Installer
         shell: pwsh
         run: |
@@ -99,7 +104,12 @@ jobs:
               if ('PDFeather.PDF' -notin $openWith.GetValueNames()) { throw 'PDF Open With registration is missing' }
               if ($language -eq 'english') {
                 $env:QT_QPA_PLATFORM = 'offscreen'
-                $upgrade = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/PDFEATHERUPDATE=1',"/DIR=$destination") -PassThru
+                $oldApp = Start-Process -FilePath (Join-Path $destination 'PDFeather.exe') -PassThru
+                Start-Sleep -Seconds 1
+                $upgrade = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/PDFEATHERUPDATE=1',"/PDFEATHERWAITPID=$($oldApp.Id)","/DIR=$destination") -PassThru
+                Start-Sleep -Seconds 1
+                if ($upgrade.HasExited) { throw 'Installer failed to wait for the previous process' }
+                Stop-Process -Id $oldApp.Id -Force -ErrorAction SilentlyContinue
                 if (-not $upgrade.WaitForExit(60000) -or $upgrade.ExitCode -ne 0) { throw 'Update installation failed' }
                 $deadline = [DateTime]::UtcNow.AddSeconds(20)
                 $launched = @()

@@ -1099,6 +1099,7 @@ class Window(QMainWindow):
             event.ignore();self.show_close_confirmation();return
         self.canvas.reset_zoom_rendering()
         self.closing=True
+        if getattr(self,"instance",None):self.instance.close()
         if getattr(self,"update_popup",None):self.update_popup.close()
         if getattr(self,'installer_download',None) and self.installer_download.reply:self.installer_download.cancel()
         self.clear_resize_cursor()
@@ -1140,7 +1141,7 @@ if __name__ == '__main__':
             else: QMessageBox.warning(None,NAME,str(exc))
             sys.exit(1)
         app.aboutToQuit.connect(instance.close)
-    window=Window(enable_updates=not (smoke_mode or test_instance)); window.show()
+    window=Window(enable_updates=not (smoke_mode or test_instance)); window.instance=instance; window.show()
     if instance: instance.paths_received.connect(window.receive_external_files)
     if test_instance:
         def report_instance():

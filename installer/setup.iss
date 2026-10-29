@@ -62,6 +62,34 @@ Filename: "{app}\PDFeather.exe"; Description: "{cm:LaunchApp}"; Flags: nowait po
 Filename: "{app}\PDFeather.exe"; Flags: nowait; Check: IsUpdateInstall
 
 [Code]
+function OpenProcess(Access: LongWord; InheritHandle: Integer; ProcessId: LongWord): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Integer;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function InitializeSetup: Boolean;
+var
+  ParentPid: Integer;
+  ParentHandle: THandle;
+  WaitResult: LongWord;
+begin
+  Result := True;
+  ParentPid := StrToIntDef(ExpandConstant('{param:PDFEATHERWAITPID|0}'), 0);
+  if ParentPid > 0 then begin
+    ParentHandle := OpenProcess($00100000, 0, ParentPid);
+    if ParentHandle <> 0 then begin
+      WaitResult := WaitForSingleObject(ParentHandle, 60000);
+      CloseHandle(ParentHandle);
+      if WaitResult <> 0 then begin
+        Log('The previous PDFeather process did not exit; update cancelled.');
+        Result := False;
+      end;
+    end;
+  end;
+end;
+
 function IsUpdateInstall: Boolean;
 begin
   Result := ExpandConstant('{param:PDFEATHERUPDATE|0}') = '1';
