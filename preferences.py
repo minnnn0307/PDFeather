@@ -5,7 +5,7 @@ from app_meta import VERSION,publisher_for_language
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QComboBox,QCheckBox,QSpinBox,
     QDoubleSpinBox,QGroupBox,QLabel,QPushButton,QGridLayout,QHBoxLayout,QListWidget,QStackedWidget,QScrollArea)
 
-DEFAULTS=dict(auto_update=True,optimization=False,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,scroll_step=100,
+DEFAULTS=dict(auto_update=True,close_all_tabs=False,optimization=False,render_mode='tiles',theme='dark',default_mode=1,default_fit='page',show_thumbnails=True,wheel_step=15,scroll_step=100,
     edge_flip=True,remember_document=True,remember_geometry=True,print_paper='A4',print_duplex=0,
     margin_left=10.,margin_top=10.,margin_right=10.,margin_bottom=10.,print_gap=2.)
 
@@ -88,6 +88,7 @@ class SettingsPanel(QWidget):
         self.check(appearance,'왼쪽 썸네일 기본 표시','show_thumbnails')
         behavior=group(general,'시작 및 창')
         self.check(behavior,'창 위치와 크기 기억','remember_geometry')
+        self.check(behavior,'종료할 때 항상 모든 탭 닫기 (확인 생략)','close_all_tabs')
         updates=group(general,'업데이트')
         self.check(updates,'새 버전 자동 확인 (하루 한 번)','auto_update')
         notice=QLabel('업데이트 확인에만 GitHub에 연결합니다. 문서는 전송하지 않습니다.\n인터넷이 없으면 조용히 건너뛰며 PDF 열기·인쇄는 계속 사용할 수 있습니다.'); notice.setObjectName('mutedText'); notice.setWordWrap(True); updates.addRow(notice); general.addStretch()

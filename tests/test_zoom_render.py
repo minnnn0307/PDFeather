@@ -26,5 +26,5 @@ class ZoomRenderTests(unittest.TestCase):
      self.assertTrue(received,'No background tile delivered');self.assertGreater(len(ticks),3)
      self.assertEqual(w.zoom,1.6);self.assertEqual(received[0][0][2],round(w.doc.sizes[received[0][0][1]][0]*1.6*w.canvas.devicePixelRatioF()))
      self.assertFalse(received[0][1].isNull())
-    process=w.canvas.zoom_renderer.process;w.close();self.assertIsNone(w.canvas.zoom_renderer.process)
-   finally:heartbeat.stop();w.close()
+    process=w.canvas.zoom_renderer.process;w.close_all();self.assertIsNone(w.canvas.zoom_renderer.process)
+   finally:heartbeat.stop();w.close_all()

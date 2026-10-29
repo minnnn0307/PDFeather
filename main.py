@@ -11,7 +11,7 @@ import pypdfium2 as pdfium
 from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QPoint, QPointF, QEvent, QUrl
 from PySide6.QtGui import QImage, QFont, QFontMetrics, QCursor, QPainter, QColor, QIcon, QPixmap, QKeySequence, QShortcut, QPageLayout, QPageSize, QDesktopServices
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QScrollArea,
-    QPushButton, QComboBox, QSpinBox, QLabel, QFileDialog, QMessageBox, QSplitter,
+    QPushButton, QCheckBox, QComboBox, QSpinBox, QLabel, QFileDialog, QMessageBox, QSplitter,
     QListWidget, QListWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QInputDialog, QFrame, QProgressBar, QLayout, QSizePolicy, QBoxLayout, QDoubleSpinBox, QGridLayout, QToolButton, QTabBar, QButtonGroup, QStackedWidget)
 from layout import parse_pages, grid, placement, print_cells
@@ -656,7 +656,7 @@ class Window(QMainWindow):
         def ready(path):
             try:launch_installer(path)
             except Exception as exc:failed(str(exc));return
-            popup.accept();self.close()
+            popup.accept();self.close_all()
         def begin():
             if self.external_draining:return
             install.setEnabled(False);later.setEnabled(False);popup.close_button.setEnabled(False);bar.show();bar.setRange(0,100);detail.setText('업데이트를 내려받고 검증하고 있습니다…');download.start(self.update_info)
@@ -1072,7 +1072,31 @@ class Window(QMainWindow):
         for url in event.mimeData().urls():
             if url.isLocalFile() and url.toLocalFile().lower().endswith('.pdf'): self.open(url.toLocalFile())
 
+    def close_all(self):
+        self.close_confirmed=True
+        self.close()
+
+    def show_close_confirmation(self):
+        if getattr(self,'close_popup',None) is not None and self.close_popup.isVisible():return
+        popup=PopupSheet(self,'열린 탭을 모두 닫으시겠습니까?',QSize(490,240));self.close_popup=popup
+        popup.findChild(QLabel,'popupTitle').setStyleSheet('font-size:19px;font-weight:600;')
+        remember=QCheckBox('항상 탭 모두 닫기');remember.setStyleSheet('QCheckBox {font-size:14px;} QCheckBox::indicator {width:20px;height:20px;}');self.close_always_check=remember;popup.body.addWidget(remember)
+        popup.body.addStretch();actions=QHBoxLayout();actions.addStretch()
+        current=QPushButton('현재 탭만 닫기');current.setObjectName('closeCurrentButton');self.close_current_button=current;actions.addWidget(current)
+        all_tabs=QPushButton('모두 닫기');all_tabs.setObjectName('closeAllButton');current.setMinimumHeight(44);all_tabs.setMinimumHeight(44);self.close_all_button=all_tabs;actions.addWidget(all_tabs);popup.body.addLayout(actions)
+        def current_only():
+            popup.reject();self.close_current_tab()
+        def all_confirmed():
+            if remember.isChecked():
+                self.prefs.set('close_all_tabs',True)
+                self.settings_panel.controls['close_all_tabs'].setChecked(True)
+            popup.accept();self.close_all()
+        current.clicked.connect(current_only);all_tabs.clicked.connect(all_confirmed)
+        popup.show()
+
     def closeEvent(self, event):
+        if self.file_tabs.count()>1 and not self.prefs.get('close_all_tabs') and not getattr(self,'close_confirmed',False):
+            event.ignore();self.show_close_confirmation();return
         self.canvas.reset_zoom_rendering()
         self.closing=True
         if getattr(self,"update_popup",None):self.update_popup.close()

@@ -144,7 +144,7 @@ class ViewModePicker(QToolButton):
 
 class TitleBar(QWidget):
     def __init__(self, window):
-        super().__init__(window); self.reader=window; self.drag_origin=None; self.dragging=False; self.setObjectName('titleBar'); self.setFixedHeight(42)
+        super().__init__(window); self.reader=window; self.drag_origin=None; self.dragging=False; self.snap_restore=None; self.snapped_geometry=None; self.setObjectName('titleBar'); self.setFixedHeight(42)
         row=QHBoxLayout(self); row.setContentsMargins(14,0,4,0); row.setSpacing(4)
         self.brand=QLabel(); self.brand.setObjectName('brand'); self.brand.setFixedSize(16,16); self.brand.setAlignment(Qt.AlignmentFlag.AlignCenter); self.brand.setPixmap(logo_pixmap(16,THEME=='dark',window.devicePixelRatioF())); row.addWidget(self.brand)
         self.title=QLabel('PDFeather'); self.title.setObjectName('windowTitle'); row.addWidget(self.title); row.addSpacing(14)
@@ -178,6 +178,10 @@ class TitleBar(QWidget):
     def mousePressEvent(self,event):
         if event.button()==Qt.MouseButton.LeftButton:
             self.drag_origin=event.globalPosition().toPoint()
+            self.drag_start_geometry=self.reader.normalGeometry() if self.reader.isMaximized() else self.reader.geometry()
+            self.restore_from_snap=self.snapped_geometry is not None and self.reader.geometry()==self.snapped_geometry
+            if self.snapped_geometry is not None and not self.restore_from_snap and not self.reader.isMaximized():
+                self.snap_restore=None;self.snapped_geometry=None
             self.drag_offset=self.reader.mapFromGlobal(self.drag_origin)
             self.drag_ratio=max(0.,min(1.,self.drag_offset.x()/max(1,self.reader.width())))
             self.dragging=False; event.accept()
@@ -188,8 +192,10 @@ class TitleBar(QWidget):
         if not self.dragging:
             if (point-self.drag_origin).manhattanLength()<QApplication.startDragDistance(): return
             self.dragging=True
-            if self.reader.isMaximized():
-                normal=self.reader.normalGeometry()
+            if self.reader.isMaximized() or getattr(self,'restore_from_snap',False):
+                normal=self.snap_restore if getattr(self,'restore_from_snap',False) else self.reader.normalGeometry()
+                self.drag_start_geometry=normal
+                self.snap_restore=None;self.snapped_geometry=None
                 self.reader.showNormal()
                 self.reader.resize(normal.size())
                 self.drag_offset=QPoint(round(self.reader.width()*self.drag_ratio),min(self.drag_offset.y(),self.height()-1))
@@ -204,9 +210,11 @@ class TitleBar(QWidget):
             if bounds.left()<=point.x()<=bounds.right() and point.y()<=bounds.top()+8:
                 self.reader.showMaximized()
             elif point.x()<=bounds.left()+8 or point.x()>=bounds.right()-8:
+                if self.snap_restore is None:self.snap_restore=getattr(self,'drag_start_geometry',self.reader.geometry())
                 self.reader.showNormal()
                 half=bounds.width()//2;left=point.x()<=bounds.left()+8
                 self.reader.setGeometry(bounds.left() if left else bounds.left()+half,bounds.top(),half if left else bounds.width()-half,bounds.height())
+                self.snapped_geometry=self.reader.geometry()
         self.drag_origin=None; self.dragging=False; self.sync_maximize_icon(); event.accept()
 
     def mouseDoubleClickEvent(self,event):

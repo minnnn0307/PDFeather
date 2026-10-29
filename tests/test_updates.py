@@ -77,7 +77,7 @@ class UpdateTests(unittest.TestCase):
                 reply=FakeReply(json.dumps([release('9.0.0')]).encode()); window.update_checker.manager=FakeManager(reply)
                 prefs.set('auto_update',False); window.check_updates(False); self.assertFalse(window.update_checker.manager.requests)
                 window.check_updates(True); reply.finished.emit(); self.assertTrue(window.update_popup.isVisible())
-            finally: window.close()
+            finally: window.close_all()
 
     def test_identity_metadata_in_both_languages(self):
         self.assertEqual(publisher_for_language('ko-KR'),PUBLISHER_KO); self.assertEqual(publisher_for_language('en-US'),PUBLISHER_EN)

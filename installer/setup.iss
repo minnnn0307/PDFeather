@@ -41,7 +41,7 @@ Source: "..\dist\PDFeather\*"; DestDir: "{app}"; Flags: ignoreversion recursesub
 Source: "..\assets\PDFeather-1.2.0.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 [Registry]
 Root: HKA; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "PDFeather.PDF"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\PDFeather.PDF"; ValueType: string; ValueName: ""; ValueData: "PDFeather"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\PDFeather.PDF"; ValueType: string; ValueName: ""; ValueData: "PDF"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\PDFeather.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\icons\PDFeather-1.2.0.ico"
 Root: HKA; Subkey: "Software\Classes\PDFeather.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\PDFeather.exe"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\Applications\PDFeather.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "PDFeather"; Flags: uninsdeletekey

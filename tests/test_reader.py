@@ -42,7 +42,7 @@ class Tests(unittest.TestCase):
                 self.assertEqual(window.zoom,10.)
                 window.set_zoom(12.)
                 self.assertEqual(window.zoom,10.)
-            finally: window.close()
+            finally: window.close_all()
 
     def test_ranges(self):
         self.assertEqual(parse_pages('1-3,5,2', 5), [0,1,2,4])
@@ -119,7 +119,7 @@ class Tests(unittest.TestCase):
             source=str(Path(temp)/'input.pdf'); create_pdf(source,3)
             settings_path=str(Path(temp)/'preferences.ini')
             prefs=Preferences(QSettings(settings_path,QSettings.Format.IniFormat))
-            window=Window(prefs); cleanup.callback(window.close); window.open(source); window.show(); app.processEvents()
+            window=Window(prefs); cleanup.callback(window.close_all); window.open(source); window.show(); app.processEvents()
             panel=window.settings_panel
             panel.controls['theme'].setCurrentIndex(panel.controls['theme'].findData('light'))
             self.assertEqual(window.theme_name,'light')
@@ -146,13 +146,13 @@ class Tests(unittest.TestCase):
             self.assertEqual(window.theme_name,'dark')
             from branding import application_icon
             self.assertFalse(application_icon().isNull())
-            window.close()
+            window.close_all()
 
     def test_document_modes_and_print(self):
         with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
             source = str(Path(temp)/'input.pdf')
             create_pdf(source,5)
-            window = Window(Preferences(QSettings(str(Path(temp)/'preferences.ini'),QSettings.Format.IniFormat))); cleanup.callback(window.close); window.open(source)
+            window = Window(Preferences(QSettings(str(Path(temp)/'preferences.ini'),QSettings.Format.IniFormat))); cleanup.callback(window.close_all); window.open(source)
             self.assertEqual(len(window.doc.sizes), 5)
             image = window.doc.image(0,1)
             self.assertFalse(image.isNull())
@@ -208,6 +208,6 @@ class Tests(unittest.TestCase):
             dialog.scale_mode.setCurrentIndex(1); self.assertFalse(dialog.scale.isEnabled()); self.assertEqual(dialog.settings()['scale_basis'],'actual')
             self.assertGreater(len(ticks),3)
             self.assertTrue(dialog.preview_label.pixmap() and not dialog.preview_label.pixmap().isNull(),dialog.error.text())
-            dialog.close(); window.close()
+            dialog.close(); window.close_all()
 
 if __name__ == '__main__': unittest.main()

@@ -25,4 +25,4 @@ class WindowFrameTests(unittest.TestCase):
                 w.showMaximized();settle();self.assertTrue(w.mask().isEmpty())
                 w.showNormal();settle();self.assertFalse(w.mask().isEmpty())
                 w.apply_theme('light');settle();w.canvas.grab();self.assertNotEqual(w.canvas.welcome_image.cacheKey(),key)
-            finally:w.close()
+            finally:w.close_all()

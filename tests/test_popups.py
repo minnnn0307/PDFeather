@@ -40,7 +40,7 @@ class PopupTests(unittest.TestCase):
                 self.assertTrue(sheet.scrim.isVisible());self.assertTrue(sheet.isModal())
                 self.assertLess((sheet.geometry().center()-w.mapToGlobal(w.rect().center())).manhattanLength(),4)
                 self.assertLessEqual(sheet.width(),w.width());sheet.close();settle();self.assertFalse(sheet.scrim.isVisible())
-            finally:w.close()
+            finally:w.close_all()
     def test_print_progress_error_cancel_and_completion(self):
         with tempfile.TemporaryDirectory() as folder:
             source=Path(folder)/'one.pdf';create_pdf(source,2)
@@ -54,4 +54,4 @@ class PopupTests(unittest.TestCase):
                     p.connection=Messages(('error','Test failure'));p.poll();settle();self.assertTrue(p.setup_content.isVisible());self.assertIn('Test failure',p.error.text())
                     p.submit();p.cancel_job();settle();self.assertTrue(p.setup_content.isVisible())
                     p.submit();p.connection=Messages(('done',));p.poll();settle();self.assertFalse(p.isVisible());self.assertFalse(p.scrim.isVisible());self.assertIsNone(p.process)
-                finally:p.done(0);w.close()
+                finally:p.done(0);w.close_all()

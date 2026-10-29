@@ -75,7 +75,7 @@ class OptimizationInstallTests(unittest.TestCase):
      button=next(b for b in w.update_popup.findChildren(QPushButton) if b.text()=='업데이트 설치')
      button.click();launch.assert_not_called();reply.finished.emit();self.assertEqual(launch.call_count,1)
      w.installer_download.cleanup()
-   finally:w.close()
+   finally:w.close_all()
 
  def test_optimization_and_side_snap(self):
   with tempfile.TemporaryDirectory() as folder:
@@ -93,4 +93,4 @@ class OptimizationInstallTests(unittest.TestCase):
      bar.mouseReleaseEvent(event);settle();self.assertEqual(w.geometry().x(),bounds.left() if left else bounds.left()+bounds.width()//2)
      # Qt's minimum width remains authoritative on unusually narrow screens.
      self.assertEqual(w.width(),max(w.minimumWidth(),bounds.width()//2))
-   finally:w.close()
+   finally:w.close_all()

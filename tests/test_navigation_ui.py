@@ -26,7 +26,7 @@ class NavigationUITests(unittest.TestCase):
                     event=QMouseEvent(QEvent.Type.MouseMove,QPointF(point),QPointF(w.mapToGlobal(point)),Qt.MouseButton.NoButton,Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier)
                     QApplication.sendEvent(w,event);self.assertIsNotNone(app.overrideCursor());self.assertEqual(app.overrideCursor().shape(),shape)
                 point=QPoint(100,100);QApplication.sendEvent(w,QMouseEvent(QEvent.Type.MouseMove,QPointF(point),QPointF(w.mapToGlobal(point)),Qt.MouseButton.NoButton,Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier));self.assertIsNone(app.overrideCursor())
-            finally:w.close()
+            finally:w.close_all()
     def test_scroll_setting_and_thumbnail_prefetch(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'pages.pdf';create_pdf(path,40);w=self.window(folder)
@@ -44,4 +44,4 @@ class NavigationUITests(unittest.TestCase):
                 w.thumbs.verticalScrollBar().setValue(3000)
                 for _ in range(60):w.render_thumbs()
                 self.assertFalse(w.thumbs.item(0).icon().isNull(),'Recently viewed thumbnails should remain cached')
-            finally:w.close()
+            finally:w.close_all()

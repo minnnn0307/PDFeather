@@ -71,6 +71,9 @@ QToolBox::tab:selected {{ background:{c['selected']}; font-weight:600; }}
 #sectionHeader {{ text-align:left; padding:8px 12px; background:{c['bar']}; border:1px solid {c['line']}; border-radius:5px; }}
 #sectionHeader:checked {{ background:{c['selected']}; font-weight:600; }}
 #printSection {{ background:{c['window']}; }}
+#closeCurrentButton {{ background:transparent; border:1px solid {c['line']}; padding:11px 16px; border-radius:11px; }}
+#closeAllButton {{ background:#3d68ff; color:white; padding:11px 18px; border-radius:11px; }}
+#closeAllButton:hover {{ background:#3057df; }}
 #primaryButton {{ background:#187f75; color:white; font-weight:600; padding:12px; }}
 #popupCard {{ background:{c['window']}; border:1px solid {c['line']}; border-radius:18px; }}
 #popupTitle {{ font-size:17px; font-weight:600; padding-left:6px; }}

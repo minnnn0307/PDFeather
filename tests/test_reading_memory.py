@@ -30,7 +30,7 @@ class ReadingMemoryTests(unittest.TestCase):
                 w.close_current_tab(); w.open(str(path)); settle()
                 self.assertEqual((w.current,w.zoom,w.scroll.horizontalScrollBar().value(),w.scroll.verticalScrollBar().value()),expected)
                 w.help(); self.assertEqual(w.settings_panel.categories.currentItem().text(),'도움말'); self.assertTrue(w.settings_dialog.isVisible()); w.settings_dialog.hide()
-            finally: w.close(); settle()
+            finally: w.close_all(); settle()
             w=window()
             try:
                 w.open(str(path)); settle()
@@ -38,7 +38,7 @@ class ReadingMemoryTests(unittest.TestCase):
                 w.settings_panel.controls['remember_document'].setChecked(False)
                 w.close_current_tab(); w.open(str(path)); settle()
                 self.assertEqual(w.current,0); self.assertEqual(w.fit_mode,'page')
-            finally: w.close(); settle()
+            finally: w.close_all(); settle()
 
     def test_modified_and_corrupt_records_ignored(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -51,4 +51,4 @@ class ReadingMemoryTests(unittest.TestCase):
                 record['mtime']-=1; prefs.storage.setValue(key,json.dumps(record))
                 w.open(str(path)); settle(); self.assertEqual(w.fit_mode,'page'); w.close_current_tab()
                 prefs.storage.setValue(key,'bad json'); w.open(str(path)); settle(); self.assertEqual(w.fit_mode,'page')
-            finally: w.close(); settle()
+            finally: w.close_all(); settle()

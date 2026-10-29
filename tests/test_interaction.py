@@ -55,7 +55,7 @@ class InteractionTests(unittest.TestCase):
                 send(bar,QEvent.Type.MouseButtonPress,start,Qt.MouseButton.LeftButton)
                 send(bar,QEvent.Type.MouseButtonRelease,start,Qt.MouseButton.NoButton)
                 self.assertTrue(window.isMaximized())
-            finally: window.close()
+            finally: window.close_all()
 
     def test_stacking_order_padding_undo_and_limit(self):
         collection=CaptureCollection(limit=200)
@@ -76,7 +76,7 @@ class InteractionTests(unittest.TestCase):
     def test_text_drag_clipboard_and_two_capture_modes(self):
         with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
             source=Path(temp)/'input.pdf'; create_pdf(source,3)
-            window=make_window(temp); cleanup.callback(window.close); window.open(str(source)); window.show(); settle()
+            window=make_window(temp); cleanup.callback(window.close_all); window.open(str(source)); window.show(); settle()
             def char_point(index):
                 rect=window.canvas.rects[0][1]; page=window.doc.pdf[0]; text=page.get_textpage()
                 try: l,b,r,t=text.get_charbox(index)
@@ -110,14 +110,14 @@ class InteractionTests(unittest.TestCase):
             window.copy_captures(); copied=QApplication.clipboard().image()
             self.assertEqual(copied.width(),round(220*window.canvas.devicePixelRatioF())); self.assertEqual(copied.height(),round(160*window.canvas.devicePixelRatioF()))
             window.undo_capture(); self.assertEqual(len(window.captures.items),1); window.clear_captures(); self.assertFalse(window.captures.items)
-            window.close()
+            window.close_all()
 
     def test_pointer_hand_and_integrated_title_tabs(self):
         from PySide6.QtGui import QMouseEvent
         from PySide6.QtCore import QEvent
         with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
             source=Path(temp)/'input.pdf'; create_pdf(source,4)
-            window=make_window(temp); cleanup.callback(window.close); window.open(str(source)); window.show(); settle()
+            window=make_window(temp); cleanup.callback(window.close_all); window.open(str(source)); window.show(); settle()
             self.assertIs(window.file_tabs.parentWidget(),window.titlebar)
             self.assertEqual(window.titlebar.title.text(),'PDFeather')
             window.set_selection_tool('pointer'); start=QPoint(400,200); end=QPoint(450,260)
@@ -135,22 +135,22 @@ class InteractionTests(unittest.TestCase):
             self.assertFalse(window.captures.items); self.assertEqual(window.canvas.cursor().shape(),Qt.CursorShape.OpenHandCursor)
             changes=[]; window.mode.currentIndexChanged.connect(changes.append); window.mode.actions[2].trigger(); self.assertEqual(window.mode.currentIndex(),2); self.assertEqual(changes[-1],2)
             close=window.file_tabs.tabButton(0,window.file_tabs.ButtonPosition.RightSide); QTest.mouseClick(close,Qt.MouseButton.LeftButton); settle(); self.assertIsNone(window.doc)
-            window.close()
+            window.close_all()
 
     def test_external_files_wait_for_modal_and_reuse_window(self):
         with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
             first=Path(temp)/'first.pdf'; second=Path(temp)/'second.pdf'; create_pdf(first,2); create_pdf(second,3)
-            window=make_window(temp); cleanup.callback(window.close); window.open(str(first)); window.show(); settle()
+            window=make_window(temp); cleanup.callback(window.close_all); window.open(str(first)); window.show(); settle()
             dialog=QDialog(window); dialog.setModal(True); dialog.show(); cleanup.callback(dialog.close); settle()
             window.receive_external_files([str(second)]); settle(); self.assertEqual(window.file_tabs.count(),1)
             dialog.close(); QTest.qWait(200); settle(); self.assertEqual(window.file_tabs.count(),2); self.assertEqual(Path(window.doc.path).name,'second.pdf')
             window.receive_external_files([str(second)]); settle(); self.assertEqual(window.file_tabs.count(),2)
-            window.close()
+            window.close_all()
 
     def test_tabs_restore_view_search_selection_and_release_cache(self):
         with tempfile.TemporaryDirectory() as temp, ExitStack() as cleanup:
             first=Path(temp)/'first.pdf'; second=Path(temp)/'second.pdf'; create_pdf(first,5); create_pdf(second,2)
-            window=make_window(temp); cleanup.callback(window.close); window.open(str(first)); window.show(); settle()
+            window=make_window(temp); cleanup.callback(window.close_all); window.open(str(first)); window.show(); settle()
             first_doc=window.doc; window.mode.setCurrentIndex(1); window.set_zoom(1.5); window.go(2); settle()
             window.selection.begin((2,0)); window.selection.extend((2,3)); scroll=window.scroll.verticalScrollBar().value()
             window.show_search(); window.search_input.setText('Page'); window.search_debounce.stop(); window.begin_search()
@@ -171,6 +171,6 @@ class InteractionTests(unittest.TestCase):
             window.close_current_tab(); settle(); self.assertEqual(window.file_tabs.count(),1); self.assertIs(window.doc,first_doc)
             window.close_current_tab(); settle(); self.assertIsNone(window.doc); self.assertEqual(window.file_tabs.count(),0)
             window.open(str(first)); settle(); self.assertIsNotNone(window.doc)
-            window.close()
+            window.close_all()
 
 if __name__=='__main__': unittest.main()

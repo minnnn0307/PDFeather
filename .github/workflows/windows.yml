@@ -93,6 +93,8 @@ jobs:
               $command = (Get-Item 'HKCU:\Software\Classes\PDFeather.PDF\shell\open\command').GetValue('')
               $expectedCommand = '"' + (Join-Path $destination 'PDFeather.exe') + '" "%1"'
               if ($command -ne $expectedCommand) { throw 'PDF association command mismatch' }
+              $fileType = (Get-Item 'HKCU:\Software\Classes\PDFeather.PDF').GetValue('')
+              if ($fileType -ne 'PDF') { throw 'PDF file type label mismatch' }
               $openWith = Get-Item 'HKCU:\Software\Classes\.pdf\OpenWithProgids'
               if ('PDFeather.PDF' -notin $openWith.GetValueNames()) { throw 'PDF Open With registration is missing' }
               if ($language -eq 'english') {
