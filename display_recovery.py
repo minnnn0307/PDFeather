@@ -3,16 +3,39 @@ import time
 from PySide6.QtCore import QObject,QTimer,QEvent
 from PySide6.QtWidgets import QWidget
 from branding import logo_pixmap
+from windows_dpi import native_monitor_scale,refresh_monitor_data
 
 class DisplayRecovery(QObject):
     def __init__(self,owner):
         super().__init__(owner);self.owner=owner;self.screen=None;self.handle=None;self.suspended_view=None;self.inactive_since=None
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.setInterval(180);self.timer.timeout.connect(self.refresh)
         owner.installEventFilter(self)
+        self.dpi_delays=();self.dpi_observation=None
+        self.dpi_timer=QTimer(self);self.dpi_timer.setSingleShot(True);self.dpi_timer.timeout.connect(self.reconcile_dpi)
         self.watch_screen(owner.screen())
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().screenAdded.connect(self.begin_dpi_recovery)
+        QApplication.instance().screenRemoved.connect(self.begin_dpi_recovery)
 
     def schedule(self,*args):
         if not getattr(self.owner,'closing',False):self.timer.start()
+
+    def begin_dpi_recovery(self,*args):
+        if getattr(self.owner,'closing',False):return
+        # Monitor enumeration can still report the temporary 96-DPI sleep display
+        # immediately after wake. Check again as the real display comes online.
+        self.dpi_delays=(500,1000,2000,4000,8000)
+        self.dpi_timer.start(0)
+
+    def reconcile_dpi(self):
+        if getattr(self.owner,'closing',False):return
+        before=self.owner.devicePixelRatioF()
+        expected=native_monitor_scale(self.owner)
+        refreshed=refresh_monitor_data(self.owner)
+        self.dpi_observation=(expected,before,self.owner.devicePixelRatioF())
+        if refreshed and (expected is None or abs(expected-before)>.01 or self.owner.devicePixelRatioF()!=before):self.schedule()
+        if self.dpi_delays:
+            delay,*remaining=self.dpi_delays;self.dpi_delays=tuple(remaining);self.dpi_timer.start(delay)
 
     def watch_screen(self,screen):
         if screen is self.screen:return
@@ -24,7 +47,7 @@ class DisplayRecovery(QObject):
         self.screen=screen
         if screen:
             screen.logicalDotsPerInchChanged.connect(self.schedule);screen.geometryChanged.connect(self.schedule)
-        if changed:self.schedule()
+        if changed:self.begin_dpi_recovery();self.schedule()
 
     def eventFilter(self,obj,event):
         if obj is self.owner:
@@ -34,7 +57,7 @@ class DisplayRecovery(QObject):
             if event.type()==QEvent.Type.WindowDeactivate:self.inactive_since=time.monotonic()
             if event.type()==QEvent.Type.DevicePixelRatioChange:self.schedule()
             if event.type()==QEvent.Type.WindowActivate:
-                if self.suspended_view or self.inactive_since is not None and time.monotonic()-self.inactive_since>30:self.schedule()
+                if self.suspended_view or self.inactive_since is not None and time.monotonic()-self.inactive_since>30:self.begin_dpi_recovery();self.schedule()
                 self.inactive_since=None
         return False
 
@@ -42,10 +65,10 @@ class DisplayRecovery(QObject):
         if message==0x0218 and wparam==4:
             w=self.owner
             self.suspended_view=(w.doc,w.zoom,w.fit_mode,w.current,w.scroll.horizontalScrollBar().value(),w.scroll.verticalScrollBar().value())
-            self.timer.stop();w.canvas.reset_zoom_rendering()
+            self.timer.stop();self.dpi_timer.stop();w.canvas.reset_zoom_rendering()
             return
         # Let Qt process WM_DPICHANGED itself, including the suggested geometry.
-        if message in (0x007e,0x02e0) or message==0x0218 and wparam in (6,7,18):self.schedule()
+        if message in (0x007e,0x02e0) or message==0x0218 and wparam in (6,7,18):self.begin_dpi_recovery();self.schedule()
 
     def refresh(self):
         w=self.owner
@@ -61,6 +84,7 @@ class DisplayRecovery(QObject):
                 w.zoom=zoom;w.fit_mode=fit;w.current=current;x=sx;y=sy
                 w.zoom_box.blockSignals(True);w.zoom_box.setValue(round(zoom*100));w.zoom_box.blockSignals(False)
         # Activate layouts before calculating page fit; never multiply logical sizes by DPI.
+        w.suppress_scroll=True
         for widget in [w,*w.findChildren(QWidget)]:
             if widget.layout():widget.layout().invalidate();widget.layout().activate()
         w.titlebar.brand.setPixmap(logo_pixmap(16,w.theme_name=='dark',w.devicePixelRatioF()))

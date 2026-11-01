@@ -29,6 +29,10 @@ jobs:
       - run: python -m unittest discover -s tests -v
         env:
           QT_QPA_PLATFORM: offscreen
+      - name: Verify native Windows DPI recovery
+        env:
+          QT_QPA_PLATFORM: windows
+        run: python scripts/verify_dpi.py
       - name: Verify real GitHub installer download and digest
         env:
           QT_QPA_PLATFORM: offscreen

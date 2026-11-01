@@ -1150,7 +1150,7 @@ class Window(QMainWindow):
             event.ignore();self.show_close_confirmation();return
         self.canvas.reset_zoom_rendering()
         self.closing=True
-        self.display_recovery.timer.stop()
+        self.display_recovery.timer.stop();self.display_recovery.dpi_timer.stop()
         if getattr(self,"instance",None):self.instance.close()
         if getattr(self,"update_popup",None):self.update_popup.close()
         if getattr(self,'installer_download',None) and self.installer_download.reply:self.installer_download.cancel()

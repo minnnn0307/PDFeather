@@ -25,7 +25,7 @@ def icon(name):
     elif name=='print':
         rect(3,8,18,10); rect(7,3,10,5); p.fillRect(QRectF(7,14,10,7),QColor(PALETTES[THEME]['bar'])); rect(7,14,10,7); line(17,11,18,11)
     elif name=='zoom_region':
-        p.drawEllipse(QRectF(3,3,12,12));line(13,13,17,17);line(17,19,23,19);line(20,16,20,22)
+        p.drawEllipse(QRectF(3,3,12,12));line(13,13,21,21);line(6,9,12,9);line(9,6,9,12)
     elif name=='search': p.drawEllipse(QRectF(4,3,12,12)); line(14,14,21,21)
     elif name=='info': p.drawEllipse(QRectF(3,3,18,18)); line(12,11,12,17); p.drawPoint(QPointF(12,7))
     elif name=='help':
