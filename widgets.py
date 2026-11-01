@@ -24,6 +24,8 @@ def icon(name):
         path=QPainterPath(); path.moveTo(3,7); path.lineTo(9,7); path.lineTo(11,9); path.lineTo(21,9); path.lineTo(18,19); path.lineTo(3,19); path.closeSubpath(); p.drawPath(path); line(3,7,3,5); line(3,5,10,5)
     elif name=='print':
         rect(3,8,18,10); rect(7,3,10,5); p.fillRect(QRectF(7,14,10,7),QColor(PALETTES[THEME]['bar'])); rect(7,14,10,7); line(17,11,18,11)
+    elif name=='zoom_region':
+        p.drawEllipse(QRectF(3,3,12,12));line(13,13,17,17);line(17,19,23,19);line(20,16,20,22)
     elif name=='search': p.drawEllipse(QRectF(4,3,12,12)); line(14,14,21,21)
     elif name=='info': p.drawEllipse(QRectF(3,3,18,18)); line(12,11,12,17); p.drawPoint(QPointF(12,7))
     elif name=='help':
@@ -80,8 +82,14 @@ def tool(name, tip, callback, parent=None):
 
 
 class TitleTabBar(QTabBar):
+    reopenRequested=Signal()
+    can_reopen=False
     def __init__(self,parent=None):
         super().__init__(parent); self.setObjectName('documentTabs'); self.setDocumentMode(True); self.setExpanding(False); self.setMovable(True); self.setUsesScrollButtons(True); self.setElideMode(Qt.TextElideMode.ElideRight); self.setDrawBase(False)
+
+    def contextMenuEvent(self,event):
+        if self.tabAt(event.pos())>=0:event.accept();return
+        menu=QMenu(self);action=menu.addAction('닫은 탭 다시 열기',self.reopenRequested.emit);action.setShortcut('Ctrl+Shift+T');action.setEnabled(self.can_reopen);menu.exec(event.globalPos())
 
     def tabSizeHint(self,index):
         size=super().tabSizeHint(index); return QSize(min(230,max(140,size.width())),34)
@@ -157,6 +165,9 @@ class TitleBar(QWidget):
         self.max_button=tool('maximize','최대화 / 창 모드',self.toggle); row.addWidget(self.max_button)
         close=tool('close','종료',window.close); close.setObjectName('closeButton'); row.addWidget(close)
 
+
+    def contextMenuEvent(self,event):
+        menu=QMenu(self);action=menu.addAction('닫은 탭 다시 열기',self.reader.reopen_closed_tab);action.setShortcut('Ctrl+Shift+T');action.setEnabled(self.tabs.can_reopen);menu.exec(event.globalPos())
 
     def sync_tabs(self):
         present=self.tabs.count()>0; self.tabs.setVisible(present); self.empty_space.setVisible(not present)

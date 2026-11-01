@@ -5,6 +5,7 @@ from dataclasses import dataclass,field
 class DocumentTab:
     doc: object
     selection: object
+    region_restore: object=None
     current: int=0
     zoom: float=1.
     fit_mode: object='page'

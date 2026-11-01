@@ -52,9 +52,9 @@ class CanvasInteraction:
         if event.button()==Qt.MouseButton.LeftButton and self.dragging:
             self.drag_pointer=event.globalPosition().toPoint(); self.update_drag(event.position()); self.dragging=False; self.drag_timer.stop()
             if self.reader.selection_tool=='hand': self.setCursor(Qt.CursorShape.OpenHandCursor)
-            if self.reader.selection_tool in ('capture','multi'):
+            if self.reader.selection_tool in ('capture','multi','zoom_region'):
                 region=self.capture_rect; self.capture_rect=None; self.update()
-                if region and region.width()>=4 and region.height()>=4: self.reader.capture_region(region)
+                if region and region.width()>=4 and region.height()>=4: self.reader.zoom_region(region) if self.reader.selection_tool=='zoom_region' else self.reader.capture_region(region)
             event.accept()
         else: super().mouseReleaseEvent(event)
 
@@ -76,6 +76,7 @@ class CanvasInteraction:
         else: super().keyPressEvent(event)
 
     def contextMenuEvent(self,event):
+        if self.reader.selection_tool=='zoom_region' and self.reader.restore_region_zoom():event.accept();return
         menu=QMenu(self)
         copy=menu.addAction('선택한 텍스트 복사'); copy.setEnabled(bool(self.reader.selection and self.reader.selection.anchor is not None)); copy.triggered.connect(self.reader.copy_text)
         menu.addSeparator()

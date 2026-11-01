@@ -31,6 +31,7 @@ from updates import UpdateChecker
 from update_install import InstallerDownload,launch_installer
 from instance import SingleInstance
 from zoom_render import ZoomRenderer
+from display_recovery import DisplayRecovery
 
 
 STYLE = stylesheet('dark')
@@ -459,7 +460,7 @@ class Window(QMainWindow):
         self.external_pending=[]; self.external_draining=False; self.external_activate=False
         self.external_timer=QTimer(self); self.external_timer.setSingleShot(True); self.external_timer.timeout.connect(self.drain_external_files)
         self.resize_cursor_active=False; self.thumb_lru=OrderedDict()
-        self.active_tab=None; self.restoring_tab=False; self.selection=None; self.selection_tool='pointer'; self.captures=CaptureCollection()
+        self.closed_tabs=[]; self.active_tab=None; self.restoring_tab=False; self.selection=None; self.selection_tool='pointer'; self.captures=CaptureCollection()
         self.doc=None; self.current=0; self.zoom=1.; self.fit_mode=None; self.last_flip=0
         self.matches=[]; self.match_index=-1; self.search_page=0; self.search_query=''; self.suppress_scroll=False
         self.setWindowFlags(Qt.WindowType.Window|Qt.WindowType.FramelessWindowHint)
@@ -471,12 +472,12 @@ class Window(QMainWindow):
         release=QPushButton('업데이트 보기'); release.clicked.connect(self.open_update_page); update_row.addWidget(release)
         dismiss=QPushButton('닫기'); dismiss.clicked.connect(self.dismiss_update); update_row.addWidget(dismiss); self.update_bar.hide(); root.addWidget(self.update_bar)
         self.file_tabs=self.titlebar.tabs
-        self.file_tabs.currentChanged.connect(self.activate_tab); self.file_tabs.tabCloseRequested.connect(self.close_tab)
-        toolbar=QWidget(); toolbar.setObjectName('toolbar'); bar=QHBoxLayout(toolbar); bar.setContentsMargins(10,7,12,7); bar.setSpacing(6)
+        self.file_tabs.reopenRequested.connect(self.reopen_closed_tab); self.file_tabs.currentChanged.connect(self.activate_tab); self.file_tabs.tabCloseRequested.connect(self.close_tab)
+        toolbar=QWidget(); self.toolbar=toolbar; toolbar.setObjectName('toolbar'); bar=QHBoxLayout(toolbar); bar.setContentsMargins(10,7,12,7); bar.setSpacing(6)
         for name,tip,callback in [('sidebar','썸네일 표시 / 숨기기',self.toggle_sidebar),('open','파일 열기 · Ctrl+O',self.choose),('print','인쇄 · Ctrl+P',self.print_document),('search','찾기 · Ctrl+F',self.show_search)]: bar.addWidget(tool(name,tip,callback))
         bar.addSpacing(12)
         self.selection_buttons={}; self.selection_group=QButtonGroup(self); self.selection_group.setExclusive(True)
-        for name,label,key in [('pointer','일반 포인터','pointer'),('hand','손 도구 · 드래그하여 화면 이동','hand'),('text','텍스트 선택 · 드래그 후 Ctrl+C','text'),('capture','영역 캡처 · 드래그하면 이미지 복사','capture'),('multi','다중캡처 · 선택한 영역들을 아래로 연결','multi')]:
+        for name,label,key in [('pointer','일반 포인터','pointer'),('hand','손 도구 · 드래그하여 화면 이동','hand'),('text','텍스트 선택 · 드래그 후 Ctrl+C','text'),('zoom_region','영역 확대 · 드래그로 확대 / 우클릭으로 복구','zoom_region'),('capture','영역 캡처 · 드래그하면 이미지 복사','capture'),('multi','다중캡처 · 선택한 영역들을 아래로 연결','multi')]:
             button=tool(name,label,lambda checked=False,value=key:self.set_selection_tool(value)); button.setCheckable(True); self.selection_group.addButton(button); self.selection_buttons[key]=button; bar.addWidget(button)
         self.selection_buttons['pointer'].setChecked(True)
         self.mode=ViewModePicker(); self.mode.addItems(['단일','단일 스크롤','2페이지','2페이지 스크롤']); self.mode.setCurrentIndex(self.prefs.get('default_mode')); self.mode.currentIndexChanged.connect(self.change_mode)
@@ -528,12 +529,13 @@ class Window(QMainWindow):
         self.scroll.verticalScrollBar().valueChanged.connect(self.scrolled)
         self.thumbs.verticalScrollBar().valueChanged.connect(self.queue_thumbs)
         self.thumb_timer=QTimer(self); self.thumb_timer.setSingleShot(True); self.thumb_timer.timeout.connect(self.render_thumbs)
-        for key,callback in [(QKeySequence.StandardKey.Open,self.choose),(QKeySequence.StandardKey.Print,self.print_document),(QKeySequence.StandardKey.Find,self.show_search),('Escape',self.hide_search),('F1',self.help),('Ctrl+,',self.show_settings),('Ctrl+W',self.close_current_tab),('Ctrl+Tab',lambda:self.cycle_tab(1)),('Ctrl+Shift+Tab',lambda:self.cycle_tab(-1)),('F3',lambda:self.next_match(1)),('Shift+F3',lambda:self.next_match(-1)),('Ctrl+0',lambda:self.fit('page')),('Ctrl+1',lambda:self.fit('width')),('Ctrl+=',lambda:self.set_zoom(self.zoom*1.15)),('Ctrl+-',lambda:self.set_zoom(self.zoom/1.15)),('PgDown',lambda:self.turn(1)),('PgUp',lambda:self.turn(-1))]: QShortcut(QKeySequence(key),self,activated=callback)
+        for key,callback in [(QKeySequence.StandardKey.Open,self.choose),(QKeySequence.StandardKey.Print,self.print_document),(QKeySequence.StandardKey.Find,self.show_search),('Escape',self.hide_search),('F1',self.help),('Ctrl+,',self.show_settings),('Ctrl+W',self.close_current_tab),('Ctrl+Shift+T',self.reopen_closed_tab),('Ctrl+Tab',lambda:self.cycle_tab(1)),('Ctrl+Shift+Tab',lambda:self.cycle_tab(-1)),('F3',lambda:self.next_match(1)),('Shift+F3',lambda:self.next_match(-1)),('Ctrl+0',lambda:self.fit('page')),('Ctrl+1',lambda:self.fit('width')),('Ctrl+=',lambda:self.set_zoom(self.zoom*1.15)),('Ctrl+-',lambda:self.set_zoom(self.zoom/1.15)),('PgDown',lambda:self.turn(1)),('PgUp',lambda:self.turn(-1))]: QShortcut(QKeySequence(key),self,activated=callback)
         QApplication.instance().installEventFilter(self)
         for widget in [self,*self.findChildren(QWidget)]: widget.setMouseTracking(True)
         self.canvas.arrange()
         self.frame_outline=WindowFrame(self); self.frame_outline.show(); self.frame_outline.sync()
         self.apply_theme(self.theme_name)
+        self.display_recovery=DisplayRecovery(self)
         self.update_checker=UpdateChecker(self); self.update_checker.completed.connect(self.on_update_checked); self.update_checker.failed.connect(self.on_update_failed)
         self.settings_panel.check_update_requested.connect(lambda:self.check_updates(True)); self.settings_panel.open_release_requested.connect(self.open_update_page)
         self.update_timer=QTimer(self); self.update_timer.setSingleShot(True); self.update_timer.setInterval(3000); self.update_timer.timeout.connect(lambda:self.check_updates(False))
@@ -725,10 +727,11 @@ class Window(QMainWindow):
         if obj is self and event.type() in (QEvent.Type.Leave,QEvent.Type.WindowDeactivate,QEvent.Type.WindowStateChange): self.clear_resize_cursor()
         if obj is self and event.type()==QEvent.Type.Resize and hasattr(self,'footer_layout'):
             compact=self.width()<850
+            if hasattr(self,'toolbar'):
+                narrow=self.width()<700;self.toolbar.layout().setSpacing(3 if narrow else 6)
+                for button in self.toolbar.findChildren(QToolButton):button.setFixedSize(28 if narrow else 36,34)
             self.footer_spacer.setVisible(not compact)
             self.footer_layout.setDirection(QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight)
-        if event.type()==QEvent.Type.DevicePixelRatioChange and obj==self:
-            self.titlebar.brand.setPixmap(logo_pixmap(16,self.theme_name=='dark',self.devicePixelRatioF())); self.canvas.update()
         if event.type()==QEvent.Type.Resize and obj==self.scroll.viewport():
             if not self.doc:
                 self.canvas.resize(event.size()); self.canvas.update()
@@ -884,7 +887,7 @@ class Window(QMainWindow):
         paths, _ = QFileDialog.getOpenFileNames(self, 'PDF 열기', '', 'PDF (*.pdf)')
         for path in paths: self.open(path)
 
-    def open(self,path):
+    def open(self,path,restored=None):
         path=str(Path(path).resolve())
         for i in range(self.file_tabs.count()):
             state=self.file_tabs.tabData(i)
@@ -899,6 +902,10 @@ class Window(QMainWindow):
         except Exception as exc: QMessageBox.warning(self,'열기 실패',str(exc)); return
         state=DocumentTab(new,TextSelection(new),mode=self.prefs.get('default_mode'),fit_mode=None if self.prefs.get('default_fit')=='actual' else self.prefs.get('default_fit'))
         self.prefs.restore_document(state)
+        if restored:
+            for key,value in restored.items():
+                if key!='path':setattr(state,key,value)
+            state.current=min(state.current,len(new.sizes)-1)
         self.file_tabs.blockSignals(True); index=self.file_tabs.addTab(Path(path).name); self.file_tabs.setTabData(index,state); self.file_tabs.setTabToolTip(index,path); self.file_tabs.setCurrentIndex(index); self.file_tabs.blockSignals(False)
         self.titlebar.sync_tabs(); self.activate_tab(index)
 
@@ -956,6 +963,8 @@ class Window(QMainWindow):
         active=state is self.active_tab
         if active: self.save_tab_state()
         self.prefs.save_document(state)
+        self.closed_tabs.append(dict(path=state.doc.path,current=state.current,zoom=state.zoom,fit_mode=state.fit_mode,mode=state.mode,scroll_x=state.scroll_x,scroll_y=state.scroll_y,initialized=True))
+        self.closed_tabs=self.closed_tabs[-20:];self.file_tabs.can_reopen=True
         self.file_tabs.blockSignals(True); self.file_tabs.removeTab(index); self.file_tabs.blockSignals(False)
         if active:
             self.active_tab=None; self.doc=None; self.selection=None; self.canvas.cancel_drag(); self.search_timer.stop(); self.search_debounce.stop(); self.thumb_timer.stop()
@@ -964,6 +973,48 @@ class Window(QMainWindow):
         elif not self.file_tabs.count():
             self.restoring_tab=False; self.matches=[]; self.match_index=-1; self.current=0; self.search_bar.hide(); self.titlebar.sync_tabs(); self.rebuild_thumbnails()
             self.page.setRange(1,1); self.total.setText('/ 0'); self.setWindowTitle('PDFeather'); self.canvas.arrange()
+
+    def reopen_closed_tab(self):
+        if not self.closed_tabs:return
+        state=self.closed_tabs.pop();self.file_tabs.can_reopen=bool(self.closed_tabs)
+        if not Path(state['path']).is_file():
+            self.show_message('원래 파일을 찾을 수 없습니다. 이동 또는 삭제되었는지 확인해 주세요.');return
+        self.open(state['path'],restored=state)
+
+    def zoom_region(self,region):
+        if not self.doc or not self.active_tab:return
+        viewport=self.scroll.viewport();center=region.center()
+        entry=next(((i,r) for i,r in self.canvas.rects if r.contains(center)),None)
+        if entry is None:return
+        index,rect=entry;px=(center.x()-rect.x())/self.zoom;py=(center.y()-rect.y())/self.zoom
+        if self.active_tab.region_restore is None:
+            self.active_tab.region_restore=(self.zoom,self.fit_mode,self.scroll.horizontalScrollBar().value(),self.scroll.verticalScrollBar().value())
+        factor=min(max(1,viewport.width()-12)/region.width(),max(1,viewport.height()-12)/region.height())
+        self.set_zoom(self.zoom*factor)
+        state=self.active_tab;target_zoom=self.zoom
+        def center_region():
+            if self.active_tab is not state or state.region_restore is None or self.zoom!=target_zoom:return
+            rect=next((r for i,r in self.canvas.rects if i==index),None)
+            if rect is None:return
+            self.suppress_scroll=True
+            self.scroll.horizontalScrollBar().setValue(round(rect.x()+px*self.zoom-viewport.width()/2))
+            self.scroll.verticalScrollBar().setValue(round(rect.y()+py*self.zoom-viewport.height()/2))
+            self.suppress_scroll=False;self.scrolled()
+        center_region();QTimer.singleShot(0,center_region)
+
+    def restore_region_zoom(self):
+        if not self.active_tab or self.active_tab.region_restore is None:return False
+        zoom,fit,x,y=self.active_tab.region_restore;self.active_tab.region_restore=None
+        self.set_zoom(zoom);self.fit_mode=fit
+        self.suppress_scroll=True;self.scroll.horizontalScrollBar().setValue(x);self.scroll.verticalScrollBar().setValue(y);self.suppress_scroll=False
+        self.scrolled();return True
+
+    def nativeEvent(self,event_type,message):
+        if sys.platform=='win32' and hasattr(self,'display_recovery'):
+            from ctypes import wintypes
+            msg=ctypes.cast(int(message),ctypes.POINTER(wintypes.MSG)).contents
+            self.display_recovery.native_message(msg.message,msg.wParam)
+        return super().nativeEvent(event_type,message)
 
     def cycle_tab(self,direction):
         if self.file_tabs.count(): self.file_tabs.setCurrentIndex((self.file_tabs.currentIndex()+direction)%self.file_tabs.count())
@@ -1099,6 +1150,7 @@ class Window(QMainWindow):
             event.ignore();self.show_close_confirmation();return
         self.canvas.reset_zoom_rendering()
         self.closing=True
+        self.display_recovery.timer.stop()
         if getattr(self,"instance",None):self.instance.close()
         if getattr(self,"update_popup",None):self.update_popup.close()
         if getattr(self,'installer_download',None) and self.installer_download.reply:self.installer_download.cancel()
@@ -1172,6 +1224,13 @@ if __name__ == '__main__':
                 try:
                     from PySide6.QtNetwork import QSslSocket
                     assert QSslSocket.supportsSsl(), 'TLS support is unavailable'
+                    # Exercise resume recovery in the packaged application without sleeping CI.
+                    before=(window.zoom,window.current,window.scroll.verticalScrollBar().value())
+                    window.display_recovery.native_message(0x218,4)
+                    window.canvas.resize(20,20)
+                    window.display_recovery.native_message(0x218,18)
+                    window.display_recovery.timer.stop();window.display_recovery.refresh()
+                    assert (window.zoom,window.current,window.scroll.verticalScrollBar().value())==before
                     # Exercise selection, composition, clipboard, and tab data in the frozen executable.
                     window.selection.begin((0,0)); window.selection.extend((0,3))
                     assert window.selection.text()=='Page'
