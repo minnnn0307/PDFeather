@@ -1,5 +1,5 @@
 """Download an already published release with the actual Qt updater; never execute it."""
-import json,sys,urllib.request
+import json,sys,os,urllib.request
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QTimer
@@ -10,7 +10,11 @@ from app_meta import REPOSITORY
 
 def main():
     app=QApplication([])
-    request=urllib.request.Request(f'https://api.github.com/repos/{REPOSITORY}/releases/tags/v1.10.1',headers={'User-Agent':'PDFeather-download-verification'})
+    headers={'User-Agent':'PDFeather-download-verification'}
+    # CI-only token: send only to the GitHub API, never to the installer downloader.
+    token=os.environ.get('GITHUB_TOKEN')
+    if token:headers['Authorization']='Bearer '+token
+    request=urllib.request.Request(f'https://api.github.com/repos/{REPOSITORY}/releases/tags/v1.10.1',headers=headers)
     with urllib.request.urlopen(request,timeout=30) as response:release=json.load(response)
     info=find_update([release],'0.0.0')
     if not info:raise RuntimeError('Published fixture installer was not found')

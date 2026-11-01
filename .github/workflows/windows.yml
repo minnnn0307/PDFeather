@@ -32,6 +32,7 @@ jobs:
       - name: Verify real GitHub installer download and digest
         env:
           QT_QPA_PLATFORM: offscreen
+          GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/verify_download.py
       - name: Collect dependency licenses
         shell: pwsh
